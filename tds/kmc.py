@@ -7,9 +7,10 @@ class KMC:
         pairs,
         diffusion_barriers,
         vectors,
+        z_lim,
         attempt_frequency=1.0e13,
-        z_lim=structure.cell[2,2]/2,
         number_of_steps=1_000,
+        heating_rate=None,
         **kwargs,
     ):
         self.attempt_frequency = attempt_frequency
@@ -19,6 +20,7 @@ class KMC:
         self.total_displacement_lst = []
         self.binding_energy = binding_energy-np.mean(binding_energy)
         self.set_environment(pairs, diffusion_barriers, vectors)
+        self.heating_rate = heating_rate
 
     def set_environment(self, pairs, diffusion_barriers, vectors):
         self.indices_lst = []
@@ -30,10 +32,11 @@ class KMC:
             self.vectors_lst.append(vectors[pairs[:,0]==i])
 
     def run(self, temperature, charging_temperature=300):
-        kBT = 8.617e-5*temperature
-        occ_enhancement = np.ones_like(self.binding_energy)
+        kB = 8.617e-5
+        occ_enhancement = np.exp(-self.binding_energy/(8.617e-5*charging_temperature))
         occ_enhancement = np.cumsum(occ_enhancement)/occ_enhancement.sum()
         for i in tqdm(range(self.number_of_steps)):
+            kBT = kB*temperature
             acc_time = 0
             z_displacement = 0
             index = np.sum(np.random.random()>occ_enhancement)
@@ -47,4 +50,6 @@ class KMC:
                 if np.absolute(z_displacement) > self.z_lim:
                     break
                 index = self.indices_lst[index][index_jump]
+                if self.heating_rate is not None:
+                    kBT += kB*self.heating_rate*dt
             self.acc_time_lst.append(acc_time)
