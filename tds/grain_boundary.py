@@ -3,16 +3,16 @@ import numpy as np
 def get_potential():
     return '1995--Angelo-J-E--Ni-Al-H--LAMMPS--ipr1'
 
-def get_bulk(project, a_0=a_0):
+def get_bulk(project):
     lmp = project.create.job.Lammps('bulk')
     if lmp.status.initialized:
-        lmp.structure = project.create.structure.bulk('Ni', cubic=True, a=a_0)
+        lmp.structure = project.create.structure.bulk('Ni', cubic=True)
         lmp.potential = get_potential()
-        lmp.calc_static()
+        lmp.calc_minimize(pressure=0)
         lmp.run()
     return lmp
 
-def get_gb(project, axis=[1, 0, 0], sigma=5, plane=[0, 1, 3], repeat=1, potential=potential):
+def get_gb(project, axis=[1, 0, 0], sigma=5, plane=[0, 1, 3], repeat=1):
     lmp_bulk = get_bulk(project=project)
     for i in range(2):
         for j in range(2):
