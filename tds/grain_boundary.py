@@ -1,5 +1,8 @@
 import numpy as np
 
+def get_lattice_parameter(project):
+    return get_bulk(project=project).get_structure().cell[0,0]
+
 def get_potential():
     return '1995--Angelo-J-E--Ni-Al-H--LAMMPS--ipr1'
 
