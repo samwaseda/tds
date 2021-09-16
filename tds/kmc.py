@@ -40,7 +40,7 @@ class KMC:
         for i in tqdm(range(self.number_of_steps)):
             kBT = kB*temperature
             acc_time = 0
-            displacement = np.zeros([0, 0, 0])
+            displacement = np.zeros(3)
             index = np.sum(np.random.random() > occ_enhancement)
             while True:
                 kappa = self.attempt_frequency*np.exp(-self.energies_lst[index]/kBT)
