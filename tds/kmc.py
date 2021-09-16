@@ -3,6 +3,9 @@ from tqdm import tqdm
 
 
 class KMC:
+    """
+    Class to do kinetic Monte Carlo calculations for H diffusion.
+    """
     def __init__(
         self,
         binding_energy,
@@ -15,16 +18,27 @@ class KMC:
         heating_rate=None,
         **kwargs,
     ):
+        """
+        Args:
+            binding_energy ((n,)-array): list of binding energies (for each site)
+            pairs ((n,2)-array): list of pair indices
+            diffusion_barriers ((n,2)-array): diffusion barriers (forward and backward)
+            vectors ((n,3)-array): displacement vectors
+            break condition (function): condition to return when to break KMC
+            attempt_frequency (float): attempt frequency
+            number_of_steps (int): number of KMC calculations to perform
+            heating_rate (float): heating rate
+        """
         self.attempt_frequency = attempt_frequency
         self.number_of_steps = number_of_steps
         self.acc_time_lst = []
         self.total_displacement_lst = []
         self.binding_energy = binding_energy-np.mean(binding_energy)
-        self.set_environment(pairs, diffusion_barriers, vectors)
+        self._set_environment(pairs, diffusion_barriers, vectors)
         self.heating_rate = heating_rate
         self.break_condition = break_condition
 
-    def set_environment(self, pairs, diffusion_barriers, vectors):
+    def _set_environment(self, pairs, diffusion_barriers, vectors):
         self.indices_lst = []
         self.energies_lst = []
         self.vectors_lst = []
@@ -55,4 +69,3 @@ class KMC:
                 if self.heating_rate is not None:
                     kBT += kB*self.heating_rate*dt
             self.acc_time_lst.append(acc_time)
-
