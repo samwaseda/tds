@@ -9,6 +9,7 @@ class KMC:
         pairs,
         diffusion_barriers,
         vectors,
+        break_condition,
         attempt_frequency=1.0e13,
         number_of_steps=1000,
         heating_rate=None,
@@ -21,6 +22,7 @@ class KMC:
         self.binding_energy = binding_energy-np.mean(binding_energy)
         self.set_environment(pairs, diffusion_barriers, vectors)
         self.heating_rate = heating_rate
+        self.break_condition = break_condition
 
     def set_environment(self, pairs, diffusion_barriers, vectors):
         self.indices_lst = []
@@ -54,6 +56,3 @@ class KMC:
                     kBT += kB*self.heating_rate*dt
             self.acc_time_lst.append(acc_time)
 
-    @staticmethod
-    def break_condition(displacement):
-        raise NotImplementedError('break_condition not defined')
