@@ -32,30 +32,57 @@ def get_energy(element, project, repeat=4):
     else:
         raise ValueError('element not recognized')
 
-def get_gb(project, axis=[1, 0, 0], sigma=5, plane=[0, 1, 3], temperature=0, repeat=1, return_all=False):
-    lmp_bulk = get_bulk(project=project)
-    results_dict = {'structure': [], 'energy': []}
-    for i in range(2):
-        for j in range(2):
-            gb = project.create.structure.aimsgb.build(
-                axis, sigma, plane, lmp_bulk.structure, delete_layer='{0}b{1}t{0}b{1}t'.format(i, j),
-                uc_a=repeat, uc_b=repeat
-            )
-            job_name = 'lmp_{}_{}_{}_{}_{}_{}_{}'.format(repeat, axis, sigma, plane, temperature, i, j)
-            job_name = job_name.replace(',', 'c').replace('[', '').replace(']', '').replace(' ', '')
-            lmp = project.create.job.Lammps(job_name)
-            if lmp.status.initialized:
-                lmp.structure = gb
-                lmp.potential = get_potential()
-                if temperature > 0:
-                    lmp.calc_md(temperature=temperature, pressure=0, n_ionic_steps=10000)
-                else:
-                    lmp.calc_minimize(pressure=0)
-                lmp.run()
-            E = lmp.output.energy_pot[-1]-lmp_bulk.output.energy_pot[-1]/4*len(gb)
-            cell = lmp.output.cells[-1].diagonal()
-            results_dict['energy'].append(E/cell.prod()*np.max(cell)/2)
-            results_dict['structure'].append(lmp.get_structure())
-    if return_all:
-        return results_dict
-    return results_dict['structure'][np.asarray(results_dict['energy']).argmin()]
+class GrainBoundary:
+    def __init__(self, project, axis=[1, 0, 0], sigma=5, plane=[0, 1, 3], temperature=0, repeat=1):
+        self._energy_per_atom_Ni = None
+        self._energy_lst = []
+        self._structure_lst = []
+        self.project = project
+        self.axis = axis
+        self.sigma = sigma
+        self.plane = plane
+        self.temperature = temperature
+        self.repeat = repeat
+
+    @property
+    def energy_per_atom_Ni(self):
+        if self._energy_per_atom_Ni is None:
+            self._energy_per_atom_Ni = get_energy('Ni', project=self.project)
+        return self._energy_per_atom_Ni
+
+    @property
+    def gb_energy(self):
+        if len(self._energy_lst)==0:
+            self.run()
+        return self._energy_lst.min()
+
+    @property
+    def grain_boundary(self):
+        if len(self._structure_lst)==0:
+            self.run()
+        return self._structure_lst[self._energy_lst.argmin()]
+
+    def run(self):
+        lmp_bulk = get_bulk(project=self.project)
+        for i in range(2):
+            for j in range(2):
+                gb = self.project.create.structure.aimsgb.build(
+                    self.axis, self.sigma, self.plane, lmp_bulk.structure, delete_layer='{0}b{1}t{0}b{1}t'.format(i, j),
+                    uc_a=self.repeat, uc_b=self.repeat
+                )
+                job_name = 'lmp_{}_{}_{}_{}_{}_{}_{}'.format(self.repeat, self.axis, self.sigma, self.plane, self.temperature, i, j)
+                job_name = job_name.replace(',', 'c').replace('[', '').replace(']', '').replace(' ', '')
+                lmp = self.project.create.job.Lammps(job_name)
+                if lmp.status.initialized:
+                    lmp.structure = gb
+                    lmp.potential = get_potential()
+                    if self.temperature > 0:
+                        lmp.calc_md(temperature=self.temperature, pressure=0, n_ionic_steps=10000)
+                    else:
+                        lmp.calc_minimize(pressure=0)
+                    lmp.run()
+                E = lmp.output.energy_pot[-1]-self.energy_per_atom_Ni*len(gb)
+                cell = lmp.output.cells[-1].diagonal()
+                self._energy_lst.append(E/cell.prod()*np.max(cell)/2)
+                self._structure_lst.append(lmp.get_structure())
+        self._energy_lst = np.asarray(self._energy_lst)
