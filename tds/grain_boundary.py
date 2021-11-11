@@ -1,3 +1,4 @@
+from pyiron_atomistics.atomistics.structure.atoms import Atoms
 import numpy as np
 
 def get_lattice_parameter(project):
@@ -5,6 +6,17 @@ def get_lattice_parameter(project):
 
 def get_potential():
     return '1995--Angelo-J-E--Ni-Al-H--LAMMPS--ipr1'
+
+def get_structure(project, n_repeat=1, h_positions=None):
+    structure = get_bulk(project).get_structure().repeat(n_repeat)
+    if h_positions is not None:
+        h_positions = np.atleast_2d(h_positions)*get_lattice_parameter(project)
+        structure += project.create.structure.atoms(
+            elements=len(h_positions)*['H'],
+            positions=h_positions,
+            cell=structure.cell
+        )
+    return structure
 
 def get_bulk(project):
     lmp = project.create.job.Lammps('bulk')
@@ -86,3 +98,41 @@ class GrainBoundary:
                 self._energy_lst.append(E/cell.prod()*np.max(cell)/2)
                 self._structure_lst.append(lmp.get_structure())
         self._energy_lst = np.asarray(self._energy_lst)
+
+class Interstitials:
+    def __init__(self, ref_structure, positions, energy=None, eps=1):
+        self.ref_structure = ref_structure
+        self.structure = ref_structure.copy()
+        self.labels = None
+        self._energy = None
+        self.eps = eps
+        self.positions = positions
+        if energy is not None:
+            self.energy = energy
+
+    @property
+    def energy(self):
+        return self._energy
+
+    @energy.setter
+    def energy(self, new_energy):
+        self._energy = np.array(new_energy)[np.argsort(self.labels)]
+
+    @property
+    def positions(self):
+        return self.structure.positions
+
+    @positions.setter
+    def positions(self, new_positions):
+        positions, self.labels = self.structure.analyse.cluster_positions(
+            new_positions, return_labels=True, eps=self.eps
+        )
+        self.structure = Atoms(
+            elements=len(positions)*['H'], cell=self.structure.cell, positions=positions, pbc=True
+        )
+
+    def append_positions(self, positions, energy=None):
+        positions = np.append(self.positions, np.atleast_2d(positions), axis=0)
+        self.positions = positions
+        if energy is not None:
+            self.energy = np.append(self.energy, energy)[np.argsort(self.labels)]
