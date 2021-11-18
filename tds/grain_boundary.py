@@ -107,6 +107,7 @@ class Interstitials:
         self._energy = None
         self.eps = eps
         self.positions = positions
+        self.bulk_layer = 3
         if energy is not None:
             self.energy = energy
 
@@ -136,3 +137,13 @@ class Interstitials:
         self.positions = positions
         if energy is not None:
             self.energy = np.append(self.energy, energy)[np.argsort(self.labels)]
+
+    @property
+    def defect_counter(self):
+        neigh = self.ref_structure.get_neighborhood(self.positions, num_neighbors=None, cutoff_radius=self.bulk_layer)
+        counter = np.zeros(len(interstitials.positions))
+        np.add.at(
+            counter, neigh.flattened.atom_numbers,
+            interstitials.ref_structure.analyse.pyscal_cna_adaptive(mode='str')[neigh.flattened.indices] == 'others'
+        )
+        return counter
