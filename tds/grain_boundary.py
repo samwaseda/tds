@@ -107,7 +107,7 @@ class GrainBoundary:
 
 
 class Interstitials:
-    def __init__(self, ref_structure, positions, energy=None, eps=1):
+    def __init__(self, ref_structure, positions, energy=None, eps=1, cutoff_radius=3):
         self.ref_structure = ref_structure
         self.structure = ref_structure.copy()
         self.labels = None
@@ -115,6 +115,8 @@ class Interstitials:
         self.eps = eps
         self.positions = positions
         self.bulk_layer = 3
+        # 3/4 tetra-octa + 1/4 octa-octa = 3 A
+        self.cutoff_radius = cutoff_radius
         if energy is not None:
             self.energy = energy
 
@@ -143,7 +145,11 @@ class Interstitials:
         positions = np.append(self.positions, np.atleast_2d(positions), axis=0)
         self.positions = positions
         if energy is not None:
-            self.energy = np.append(self.energy, energy)[np.argsort(self.labels)]
+            self.energy = np.append(self.energy, energy)
+
+    @property
+    def equivalent_atoms(self):
+        return self.structure.get_symmetry().arg_equivalent_atoms
 
     @property
     def defect_counter(self):
