@@ -1,22 +1,26 @@
 from pyiron_atomistics.atomistics.structure.atoms import Atoms
 import numpy as np
 
+
 def get_lattice_parameter(project):
-    return get_bulk(project=project).get_structure().cell[0,0]
+    return get_bulk(project=project).get_structure().cell[0, 0]
+
 
 def get_potential():
     return '1995--Angelo-J-E--Ni-Al-H--LAMMPS--ipr1'
 
+
 def get_structure(project, n_repeat=1, h_positions=None):
     structure = get_bulk(project).get_structure().repeat(n_repeat)
     if h_positions is not None:
-        h_positions = np.atleast_2d(h_positions)*get_lattice_parameter(project)
+        h_positions = np.atleast_2d(h_positions) * get_lattice_parameter(project)
         structure += project.create.structure.atoms(
-            elements=len(h_positions)*['H'],
+            elements=len(h_positions) * ['H'],
             positions=h_positions,
             cell=structure.cell
         )
     return structure
+
 
 def get_bulk(project):
     lmp = project.create.job.Lammps('bulk')
@@ -27,22 +31,24 @@ def get_bulk(project):
         lmp.run()
     return lmp
 
+
 def get_energy(element, project, repeat=4):
     lmp_Ni = get_bulk(project=project)
     if element == 'Ni':
-        return lmp_Ni['output/generic/energy_pot'][-1]/len(lmp_Ni.structure)
+        return lmp_Ni['output/generic/energy_pot'][-1] / len(lmp_Ni.structure)
     elif element == 'H':
         lmp = project.create.job.Lammps('bulk_H')
         if lmp.status.initialized:
             lmp.potential = get_potential()
             lmp.structure = lmp_Ni.get_structure().repeat(repeat)
-            a_0 = lmp_Ni.get_structure().cell[0,0]
-            lmp.structure += project.create.structure.atoms(positions=[[0, 0, 0.5*a_0]], elements=['H'])
+            a_0 = lmp_Ni.get_structure().cell[0, 0]
+            lmp.structure += project.create.structure.atoms(positions=[[0, 0, 0.5 * a_0]], elements=['H'])
             lmp.calc_minimize()
             lmp.run()
-        return lmp.output.energy_pot[-1]-len(lmp.structure.select_index('Ni'))*get_energy('Ni', project=project)
+        return lmp.output.energy_pot[-1] - len(lmp.structure.select_index('Ni')) * get_energy('Ni', project=project)
     else:
         raise ValueError('element not recognized')
+
 
 class GrainBoundary:
     def __init__(self, project, axis=[1, 0, 0], sigma=5, plane=[0, 1, 3], temperature=0, repeat=1):
@@ -64,13 +70,13 @@ class GrainBoundary:
 
     @property
     def gb_energy(self):
-        if len(self._energy_lst)==0:
+        if len(self._energy_lst) == 0:
             self.run()
         return self._energy_lst.min()
 
     @property
     def grain_boundary(self):
-        if len(self._structure_lst)==0:
+        if len(self._structure_lst) == 0:
             self.run()
         return self._structure_lst[self._energy_lst.argmin()]
 
@@ -93,11 +99,12 @@ class GrainBoundary:
                     else:
                         lmp.calc_minimize(pressure=0)
                     lmp.run()
-                E = lmp.output.energy_pot[-1]-self.energy_per_atom_Ni*len(gb)
+                E = lmp.output.energy_pot[-1] - self.energy_per_atom_Ni * len(gb)
                 cell = lmp.output.cells[-1].diagonal()
-                self._energy_lst.append(E/cell.prod()*np.max(cell)/2)
+                self._energy_lst.append(E / cell.prod() * np.max(cell) / 2)
                 self._structure_lst.append(lmp.get_structure())
         self._energy_lst = np.asarray(self._energy_lst)
+
 
 class Interstitials:
     def __init__(self, ref_structure, positions, energy=None, eps=1):
@@ -129,7 +136,7 @@ class Interstitials:
             new_positions, return_labels=True, eps=self.eps
         )
         self.structure = Atoms(
-            elements=len(positions)*['H'], cell=self.structure.cell, positions=positions, pbc=True
+            elements=len(positions) * ['H'], cell=self.structure.cell, positions=positions, pbc=True
         )
 
     def append_positions(self, positions, energy=None):
@@ -141,9 +148,9 @@ class Interstitials:
     @property
     def defect_counter(self):
         neigh = self.ref_structure.get_neighborhood(self.positions, num_neighbors=None, cutoff_radius=self.bulk_layer)
-        counter = np.zeros(len(interstitials.positions))
+        counter = np.zeros(len(self.positions))
         np.add.at(
             counter, neigh.flattened.atom_numbers,
-            interstitials.ref_structure.analyse.pyscal_cna_adaptive(mode='str')[neigh.flattened.indices] == 'others'
+            self.ref_structure.analyse.pyscal_cna_adaptive(mode='str')[neigh.flattened.indices] == 'others'
         )
         return counter
