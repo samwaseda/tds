@@ -166,7 +166,7 @@ class Interstitials:
     @property
     def neigh(self):
         if self._neigh is None:
-            self._neigh = interstitials.structure.get_neighbors(
+            self._neigh = self.structure.get_neighbors(
                 num_neighbors=None, cutoff_radius=self.cutoff_radius
             )
         return self._neigh
@@ -179,3 +179,9 @@ class Interstitials:
             ), axis=-1)
             self._pairs = self._pairs[np.diff(self._pairs, axis=-1).squeeze() > 0]
         return self._pairs
+
+    @property
+    def minimum_pairs(self):
+        return self.pairs[
+            np.unique(self.equivalent_atoms[self.pairs], axis=0, return_index=True)[1]
+        ]
