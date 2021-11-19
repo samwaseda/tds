@@ -119,6 +119,8 @@ class Interstitials:
         self.cutoff_radius = cutoff_radius
         if energy is not None:
             self.energy = energy
+        self._neigh = None
+        self._pairs = None
 
     @property
     def energy(self):
@@ -160,3 +162,20 @@ class Interstitials:
             self.ref_structure.analyse.pyscal_cna_adaptive(mode='str')[neigh.flattened.indices] == 'others'
         )
         return counter
+
+    @property
+    def neigh(self):
+        if self._neigh is None:
+            self._neigh = interstitials.structure.get_neighbors(
+                num_neighbors=None, cutoff_radius=self.cutoff_radius
+            )
+        return self._neigh
+
+    @property
+    def pairs(self):
+        if self._pairs is None:
+            self._pairs = np.stack((
+                self.neigh.flattened.atom_numbers, self.neigh.flattened.indices
+            ), axis=-1)
+            self._pairs = self._pairs[np.diff(self._pairs, axis=-1).squeeze() > 0]
+        return self._pairs
