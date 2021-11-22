@@ -1,5 +1,6 @@
 from scipy.spatial import cKDTree
 import numpy as np
+from pyiron_base import PythonTemplateJob
 
 
 class UnitCell:
@@ -85,3 +86,31 @@ class UnitCell:
     @property
     def x_lst(self):
         return np.array(self._x_lst)
+
+
+class Metadynamics(PythonTemplateJob):  # Create a custom job class
+    def __init__(self, project, job_name):
+        super().__init__(project, job_name)
+
+    def run_static(self):  # Call a python function and store stuff in the output
+        self.unit_cell = UnitCell(unit_cell=gb, sigma=sigma, increment=increment)
+        self.output.x_lst = self.unit_cell.x_lst
+        self.status.finished = True
+        self.to_hdf()
+
+    def set_input(self, gb, increment, sigma, update_every_n_steps=100):
+        self.input.update_every_n_steps = update_every_n_steps
+
+    def callback(self, caller, ntimestep, nlocal, tag, x, fext):
+        tags = tag.flatten().argsort()
+        fext.fill(0)
+        fext[tags[-1]] += self.get_force(x[tags[-1]])
+        fext[tags[:-1]] -= np.mean(fext[tags[:-1]], axis=0)
+        if ((ntimestep + 1) % self.update_every_n_steps) == 0:
+            self.update_s(x[tags[-1]])
+
+    def get_force(self, x):
+        return self.unit_cell.get_force(x)
+
+    def update_s(self, x):
+        self.unit_cell.append_positions(x)
