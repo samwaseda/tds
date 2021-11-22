@@ -139,7 +139,7 @@ class Metadynamics(AtomisticGenericJob):  # Create a custom job class
         fext.fill(0)
         fext[tags[-1]] += self.get_force(x[tags[-1]])
         fext[tags[:-1]] -= np.mean(fext[tags[:-1]], axis=0)
-        if ((ntimestep + 1) % self.update_every_n_steps) == 0:
+        if ((ntimestep + 1) % self.input.update_every_n_steps) == 0:
             self.update_s(x[tags[-1]])
 
     def get_force(self, x):
