@@ -1,8 +1,8 @@
 from scipy.spatial import cKDTree
 import numpy as np
-from pyiron_atomistics.atomistics.job.atomistic import AtomisticGenericJob
+from pyiron_base import PythonTemplateJob
 from tds.grain_boundary import get_potential
-from pyiron_base import DataContainer
+from pyiron_atomistics.atomistics.structure.atoms import Atoms
 
 
 class UnitCell:
@@ -90,10 +90,9 @@ class UnitCell:
         return np.array(self._x_lst)
 
 
-class Metadynamics(AtomisticGenericJob):  # Create a custom job class
+class Metadynamics(PythonTemplateJob):
     def __init__(self, project, job_name):
         super().__init__(project, job_name)
-        self.input = DataContainer(table_name='custom_dict')
         self.input.n_print = 1000
         self.input.number_of_steps = int(1e5)
         self.input.temperature = 300
@@ -101,6 +100,7 @@ class Metadynamics(AtomisticGenericJob):  # Create a custom job class
         self.input.increment = 0.001
         self.input.sigma = 0.38105
         self.input.cutoff = None
+        self.structure = None
 
     def run_static(self):
         if self.input.cutoff is None:
@@ -121,7 +121,7 @@ class Metadynamics(AtomisticGenericJob):  # Create a custom job class
             temperature=self.input.temperature,
             langevin=True,
             n_ionic_steps=1000,
-            n_print=100
+            n_print=1000
         )
         lmp.run()
         lmp._generic_input["n_print"] = int(self.input.number_of_steps / 50)
@@ -148,5 +148,21 @@ class Metadynamics(AtomisticGenericJob):  # Create a custom job class
     def update_s(self, x):
         self.unit_cell.append_positions(x)
 
-    def write_input(self):
-        pass
+    def to_hdf(self, hdf=None, group_name=None):
+        super().to_hdf(
+            hdf=hdf,
+            group_name=group_name
+        )
+        with self.project_hdf5.open("input") as hdf5_input:
+            self.structure.to_hdf(hdf5_input)
+
+    def from_hdf(self, hdf=None, group_name=None):
+        super().from_hdf(
+            hdf=hdf,
+            group_name=group_name
+        )
+        if (
+            "structure" in self.project_hdf5["input"].list_groups()
+        ):
+            with self.project_hdf5.open("input") as hdf5_input:
+                self.structure = Atoms().from_hdf(hdf5_input)
