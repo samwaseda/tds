@@ -107,7 +107,7 @@ class GrainBoundary:
 
 
 class Interstitials:
-    def __init__(self, ref_structure, positions, energy=None, eps=1, cutoff_radius=3):
+    def __init__(self, ref_structure, positions, energy=None, eps=1, cutoff_radius=1.6421):
         self.ref_structure = ref_structure
         self.structure = ref_structure.copy()
         self.labels = None
@@ -121,6 +121,12 @@ class Interstitials:
             self.energy = energy
         self._neigh = None
         self._pairs = None
+
+    def set_repeat(self, repeat):
+        self.ref_structure = self.structure.repeat(repeat)
+        self.structure = self.structure.repeat(repeat)
+        self.positions = self.structure.positions
+        self.energy = np.append(*np.prod(repeat)*[self.energy])
 
     @property
     def energy(self):
