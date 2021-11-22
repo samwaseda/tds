@@ -2,6 +2,7 @@ from scipy.spatial import cKDTree
 import numpy as np
 from pyiron_atomistics.atomistics.job.atomistic import AtomisticGenericJob
 from tds.grain_boundary import get_potential
+from pyiron_base import DataContainer
 
 
 class UnitCell:
@@ -43,7 +44,7 @@ class UnitCell:
             self._mesh = np.einsum('j...,ji->...i', np.meshgrid(
                 *[np.linspace(0, 1, np.rint(c / self.mesh_spacing).astype(int)) for c in self.cell],
                 indexing='ij'
-            ), self.cell)
+            ), self.unit_cell.cell)
         return self._mesh
 
     @property
@@ -92,6 +93,7 @@ class UnitCell:
 class Metadynamics(AtomisticGenericJob):  # Create a custom job class
     def __init__(self, project, job_name):
         super().__init__(project, job_name)
+        self.input = DataContainer(table_name='custom_dict')
         self.input.n_print = 1000
         self.input.number_of_steps = int(1e6)
         self.input.temperature = 300
@@ -108,10 +110,11 @@ class Metadynamics(AtomisticGenericJob):  # Create a custom job class
             unit_cell=gb, sigma=self.input.sigma, increment=self.input.increment
         )
         x = np.random.permutation(self.structure.analyse.get_voronoi_vertices())[0]
-        self.structure += self.structure[-1]
-        self.structure[-1] = 'H'
-        self.structure.positions[-1] = x
         lmp = self.project.create.job.Lammps('lmp_{}'.format(self.job_name))
+        lmp.structure = self.structure.copy()
+        lmp.structure += lmp.structure[-1]
+        lmp.structure[-1] = 'H'
+        lmp.structure.positions[-1] = x
         lmp.potential = get_potential()
         lmp.server.run_mode.interactive = True
         lmp.calc_md(
@@ -144,3 +147,6 @@ class Metadynamics(AtomisticGenericJob):  # Create a custom job class
 
     def update_s(self, x):
         self.unit_cell.append_positions(x)
+
+    def write_input(self):
+        pass
