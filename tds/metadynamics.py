@@ -59,7 +59,7 @@ class UnitCell:
             self._x_repeat = np.einsum(
                 'j...,ji->...i',
                 np.meshgrid(*3 * [[-1, 0, 1]]),
-                self.cell
+                self.unit_cell.cell
             ).reshape(-1, 3)
         return self._x_repeat
 
@@ -95,7 +95,7 @@ class Metadynamics(AtomisticGenericJob):  # Create a custom job class
         super().__init__(project, job_name)
         self.input = DataContainer(table_name='custom_dict')
         self.input.n_print = 1000
-        self.input.number_of_steps = int(1e6)
+        self.input.number_of_steps = int(1e5)
         self.input.temperature = 300
         self.input.update_every_n_steps = 100
         self.input.increment = 0.001
