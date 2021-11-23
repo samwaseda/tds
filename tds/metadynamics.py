@@ -70,8 +70,9 @@ class UnitCell:
         x = (x[:, np.newaxis, :] + self.x_repeat).reshape(-1, 3)
         return x[self.tree.query(x)[0] < self.cutoff]
 
-    def append_positions(self, x_in):
-        x = self._get_symmetric_x(x_in)
+    def append_positions(self, x_in, symmetrize=True):
+        if symmetrize:
+            x = self._get_symmetric_x(x_in)
         self._x_lst.extend(x)
         dist, indices = self.tree.query(x, k=self.num_neighbors, distance_upper_bound=self.cutoff)
         cond = dist < np.inf
@@ -105,6 +106,7 @@ class Metadynamics(PythonTemplateJob):
         self.input.mesh_spacing = None
         self.structure = None
         self._unit_cell = None
+        self.input.x_lst = []
 
     @property
     def unit_cell(self):
@@ -117,6 +119,8 @@ class Metadynamics(PythonTemplateJob):
                 mesh_spacing=self.input.mesh_spacing,
                 cutoff=self.input.cutoff
             )
+            if len(self.input.x_lst) > 0:
+                gb.append_positions(self.input.x_lst, symmetrize=False)
         return self._unit_cell
 
     def run_static(self):
