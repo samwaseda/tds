@@ -24,6 +24,7 @@ class UnitCell:
             self.cutoff = 4 * sigma
         self.num_neighbors = int(1.1 * 4 / 3 * np.pi * self.cutoff**3 / self.mesh_spacing**3)
         self.dBds = np.zeros_like(self.mesh)
+        self._symmetry = None
 
     def x_to_s(self, x):
         return self.unit_cell.get_wrapped_coordinates(x)
@@ -48,6 +49,12 @@ class UnitCell:
         return self._tree
 
     @property
+    def symmetry(self):
+        if self._symmetry is None:
+            self._symmetry = self.unit_cell.get_symmetry()
+        return self._symmetry
+
+    @property
     def x_repeat(self):
         if self._x_repeat is None:
             self._x_repeat = np.einsum(
@@ -59,7 +66,8 @@ class UnitCell:
 
     def _get_symmetric_x(self, x_in):
         x = self.x_to_s(x_in)
-        x = (x + self.x_repeat).reshape(-1, 3)
+        x = self.symmetry.generate_equivalent_points(x, return_unique=False)
+        x = (x[:, np.newaxis, :] + self.x_repeat).reshape(-1, 3)
         return x[self.tree.query(x)[0] < self.cutoff]
 
     def append_positions(self, x_in):
