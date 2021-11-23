@@ -26,13 +26,7 @@ class UnitCell:
         self.dBds = np.zeros_like(self.mesh)
 
     def x_to_s(self, x):
-        return x - self.unit_cell.cell.T @ np.floor(self.cell_inv.T @ x)
-
-    @property
-    def cell_inv(self):
-        if self._cell_inv is None:
-            self._cell_inv = np.linalg.inv(self.unit_cell.cell)
-        return self._cell_inv
+        return self.unit_cell.get_wrapped_coordinates(x)
 
     @property
     def cell(self):
@@ -100,15 +94,24 @@ class Metadynamics(PythonTemplateJob):
         self.input.increment = 0.001
         self.input.sigma = 0.38105
         self.input.cutoff = None
+        self.input.mesh_spacing = None
         self.structure = None
+        self._unit_cell = None
+
+    @property
+    def unit_cell(self):
+        if self._unit_cell is None:
+            gb = self.structure.get_symmetry().get_primitive_cell()
+            self._unit_cell = UnitCell(
+                unit_cell=gb,
+                sigma=self.input.sigma,
+                increment=self.input.increment,
+                mesh_spacing=self.input.mesh_spacing,
+                cutoff=self.input.cutoff
+            )
+        return self._unit_cell
 
     def run_static(self):
-        if self.input.cutoff is None:
-            self.input.cutoff = self.input.sigma * 4
-        gb = self.structure.get_symmetry().get_primitive_cell()
-        self.unit_cell = UnitCell(
-            unit_cell=gb, sigma=self.input.sigma, increment=self.input.increment
-        )
         x = np.random.permutation(self.structure.analyse.get_voronoi_vertices())[0]
         lmp = self.project.create.job.Lammps('lmp_{}'.format(self.job_name))
         lmp.structure = self.structure.copy()
@@ -137,8 +140,9 @@ class Metadynamics(PythonTemplateJob):
     def callback(self, caller, ntimestep, nlocal, tag, x, fext):
         tags = tag.flatten().argsort()
         fext.fill(0)
-        fext[tags[-1]] += self.get_force(x[tags[-1]])
-        fext[tags[:-1]] -= np.mean(fext[tags[:-1]], axis=0)
+        f = self.get_force(x[tags[-1]])
+        fext[tags[-1]] += f
+        fext[tags[:-1]] -= f / (len(tag) - 1)
         if ((ntimestep + 1) % self.input.update_every_n_steps) == 0:
             self.update_s(x[tags[-1]])
 
