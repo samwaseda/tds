@@ -2,8 +2,10 @@ from pyiron_atomistics.atomistics.structure.atoms import Atoms
 import numpy as np
 
 
-def get_lattice_parameter(project):
-    return get_bulk(project=project).get_structure().cell[0, 0]
+def get_lattice_parameter(
+    project, temperature=0, coeff=np.array([2.84356485e-08, 4.37466530e-05, 3.51975215e+00])
+):
+    return np.polyval(coeff, temperature)
 
 
 def get_potential():
@@ -126,7 +128,7 @@ class Interstitials:
         self.ref_structure = self.structure.repeat(repeat)
         self.structure = self.structure.repeat(repeat)
         self.positions = self.structure.positions
-        self.energy = np.append(*np.prod(repeat)*[self.energy])
+        self.energy = np.append(*np.prod(repeat) * [self.energy])
 
     @property
     def energy(self):
