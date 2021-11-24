@@ -56,20 +56,10 @@ class UnitCell:
             self._symmetry = self.unit_cell.get_symmetry(symprec=self._symprec)
         return self._symmetry
 
-    @property
-    def x_repeat(self):
-        if self._x_repeat is None:
-            self._x_repeat = np.einsum(
-                'j...,ji->...i',
-                np.meshgrid(*3 * [[-1, 0, 1]]),
-                self.unit_cell.cell
-            ).reshape(-1, 3)
-        return self._x_repeat
-
     def _get_symmetric_x(self, x_in):
         x = self.x_to_s(x_in)
         x = self.symmetry.generate_equivalent_points(x, return_unique=False)
-        x = (x[:, np.newaxis, :] + self.x_repeat).reshape(-1, 3)
+        x = self.unit_cell.get_extended_positions(self.cutoff, positions=x)
         return x[self.tree.query(x)[0] < self.cutoff]
 
     def append_positions(self, x_in, symmetrize=True):
