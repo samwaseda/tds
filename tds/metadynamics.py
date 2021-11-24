@@ -1,8 +1,9 @@
 from scipy.spatial import cKDTree
 import numpy as np
-from pyiron_base import PythonTemplateJob
+from pyiron_base.generic.datacontainer import DataContainer
 from tds.grain_boundary import get_potential
 from pyiron_atomistics.atomistics.structure.atoms import Atoms
+from pyiron_atomistics.atomistics.job.interactivewrapper import InteractiveWrapper
 
 
 class UnitCell:
@@ -94,9 +95,11 @@ class UnitCell:
         return np.array(self._x_lst)
 
 
-class Metadynamics(PythonTemplateJob):
+class Metadynamics(InteractiveWrapper):
     def __init__(self, project, job_name):
         super().__init__(project, job_name)
+        self.input = DataContainer(table_name='input')
+        self.output = DataContainer(table_name='output')
         self.input.n_print = 1000
         self.input.number_of_steps = int(1e5)
         self.input.temperature = 300
@@ -105,20 +108,28 @@ class Metadynamics(PythonTemplateJob):
         self.input.sigma = 0.38105
         self.input.cutoff = None
         self.input.mesh_spacing = None
-        self.structure = None
+        self.input.symprec = 1.0e-2
         self._unit_cell = None
         self.input.x_lst = []
+        self.output.x_lst = []
+
+    @property
+    def structure_unary(self):
+        return self.structure[
+            self.structure.select_index(self.structure.get_majority_species()['symbol'])
+        ]
 
     @property
     def unit_cell(self):
         if self._unit_cell is None:
-            gb = self.structure.get_symmetry().get_primitive_cell()
+            gb = self.structure_unary.get_symmetry().get_primitive_cell()
             self._unit_cell = UnitCell(
                 unit_cell=gb,
                 sigma=self.input.sigma,
                 increment=self.input.increment,
                 mesh_spacing=self.input.mesh_spacing,
-                cutoff=self.input.cutoff
+                cutoff=self.input.cutoff,
+                symprec=self.input.symprec
             )
             if len(self.input.x_lst) > 0:
                 gb.append_positions(self.input.x_lst, symmetrize=False)
@@ -126,26 +137,13 @@ class Metadynamics(PythonTemplateJob):
 
     def run_static(self):
         x = np.random.permutation(self.structure.analyse.get_voronoi_vertices())[0]
-        lmp = self.project.create.job.Lammps('lmp_{}'.format(self.job_name))
-        lmp.structure = self.structure.copy()
-        lmp.structure += lmp.structure[-1]
-        lmp.structure[-1] = 'H'
-        lmp.structure.positions[-1] = x
-        lmp.potential = get_potential()
-        lmp.server.run_mode.interactive = True
-        lmp.calc_md(
-            temperature=self.input.temperature,
-            langevin=True,
-            n_ionic_steps=1000,
-            n_print=1000
-        )
-        lmp.run()
-        lmp._generic_input["n_print"] = int(self.input.number_of_steps / 50)
-        lmp._generic_input["n_ionic_steps"] = self.input.number_of_steps
-        lmp._interactive_lib_command('fix 2 all external pf/callback 1 1')
-        lmp._interactive_library.set_fix_external_callback("2", self.callback)
-        lmp.run()
-        lmp.interactive_close()
+        self.ref_job.run()
+        self.ref_job._generic_input["n_print"] = int(self.input.number_of_steps / 50)
+        self.ref_job._generic_input["n_ionic_steps"] = self.input.number_of_steps
+        self.ref_job._interactive_lib_command('fix 2 all external pf/callback 1 1')
+        self.ref_job._interactive_library.set_fix_external_callback("2", self.callback)
+        self.ref_job.run()
+        self.ref_job.interactive_close()
         self.output.x_lst = self.unit_cell.x_lst
         self.status.finished = True
         self.to_hdf()
@@ -170,16 +168,14 @@ class Metadynamics(PythonTemplateJob):
             hdf=hdf,
             group_name=group_name
         )
-        with self.project_hdf5.open("input") as hdf5_input:
-            self.structure.to_hdf(hdf5_input)
+        self.output.to_hdf(hdf=self.project_hdf5, group_name='output')
 
     def from_hdf(self, hdf=None, group_name=None):
         super().from_hdf(
             hdf=hdf,
             group_name=group_name
         )
-        if (
-            "structure" in self.project_hdf5["input"].list_groups()
-        ):
-            with self.project_hdf5.open("input") as hdf5_input:
-                self.structure = Atoms().from_hdf(hdf5_input)
+        self.output.from_hdf(hdf=self.project_hdf5, group_name='output')
+
+    def write_input(self):
+        pass
