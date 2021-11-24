@@ -6,7 +6,7 @@ from pyiron_atomistics.atomistics.structure.atoms import Atoms
 
 
 class UnitCell:
-    def __init__(self, unit_cell, sigma, increment, mesh_spacing=None, cutoff=None):
+    def __init__(self, unit_cell, sigma, increment, mesh_spacing=None, cutoff=None, symprec=1.0e-2):
         self.unit_cell = unit_cell
         self.sigma = sigma
         self.increment = increment
@@ -25,6 +25,7 @@ class UnitCell:
         self.num_neighbors = int(1.1 * 4 / 3 * np.pi * self.cutoff**3 / self.mesh_spacing**3)
         self.dBds = np.zeros_like(self.mesh)
         self._symmetry = None
+        self._symprec = 1.0e-2
 
     def x_to_s(self, x):
         return self.unit_cell.get_wrapped_coordinates(x)
@@ -51,7 +52,7 @@ class UnitCell:
     @property
     def symmetry(self):
         if self._symmetry is None:
-            self._symmetry = self.unit_cell.get_symmetry()
+            self._symmetry = self.unit_cell.get_symmetry(symprec=self._symprec)
         return self._symmetry
 
     @property
