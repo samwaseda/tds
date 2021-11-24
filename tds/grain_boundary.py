@@ -91,7 +91,7 @@ class GrainBoundary:
                     uc_a=self.repeat, uc_b=self.repeat
                 )
                 job_name = 'lmp_{}_{}_{}_{}_{}_{}_{}'.format(self.repeat, self.axis, self.sigma, self.plane, self.temperature, i, j)
-                job_name = job_name.replace(',', 'c').replace('[', '').replace(']', '').replace(' ', '')
+                job_name = job_name.replace(',', 'c').replace('[', '').replace(']', '').replace(' ', '').replace('-', 'm')
                 lmp = self.project.create.job.Lammps(job_name)
                 if lmp.status.initialized:
                     lmp.structure = gb
