@@ -21,7 +21,7 @@ class UnitCell:
         self._cell_inv = None
         if self.cutoff is None:
             self.cutoff = 4 * sigma
-        self.num_neighbors = int(1.1 * 4 / 3 * np.pi * self.cutoff**3 / self.mesh_spacing**3)
+        self.num_neighbors = int(1.5 * 4 / 3 * np.pi * self.cutoff**3 / self.mesh_spacing**3)
         self.dBds = np.zeros_like(self.mesh)
         self._symmetry = None
         self._symprec = 1.0e-2
