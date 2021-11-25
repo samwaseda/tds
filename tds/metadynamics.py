@@ -1,8 +1,6 @@
 from scipy.spatial import cKDTree
 import numpy as np
 from pyiron_base.generic.datacontainer import DataContainer
-from tds.grain_boundary import get_potential
-from pyiron_atomistics.atomistics.structure.atoms import Atoms
 from pyiron_atomistics.atomistics.job.interactivewrapper import InteractiveWrapper
 
 
@@ -102,6 +100,7 @@ class Metadynamics(InteractiveWrapper):
         self._unit_cell = None
         self.input.x_lst = []
         self.output.x_lst = []
+        self._tree = None
 
     @property
     def structure_unary(self):
@@ -110,11 +109,14 @@ class Metadynamics(InteractiveWrapper):
         ]
 
     @property
+    def primitive_cell(self):
+        return self.structure_unary.get_symmetry().get_primitive_cell()
+
+    @property
     def unit_cell(self):
         if self._unit_cell is None:
-            gb = self.structure_unary.get_symmetry().get_primitive_cell()
             self._unit_cell = UnitCell(
-                unit_cell=gb,
+                unit_cell=self.primitive_cell,
                 sigma=self.input.sigma,
                 increment=self.input.increment,
                 mesh_spacing=self.input.mesh_spacing,
@@ -122,11 +124,10 @@ class Metadynamics(InteractiveWrapper):
                 symprec=self.input.symprec
             )
             if len(self.input.x_lst) > 0:
-                gb.append_positions(self.input.x_lst, symmetrize=False)
+                self.unit_cell.append_positions(self.input.x_lst, symmetrize=False)
         return self._unit_cell
 
     def run_static(self):
-        x = np.random.permutation(self.structure.analyse.get_voronoi_vertices())[0]
         self.ref_job.run()
         self.ref_job._generic_input["n_print"] = int(self.input.number_of_steps / 50)
         self.ref_job._generic_input["n_ionic_steps"] = self.input.number_of_steps
@@ -169,3 +170,18 @@ class Metadynamics(InteractiveWrapper):
 
     def write_input(self):
         pass
+
+    def tree(self):
+        if self._tree is None:
+            self._tree = cKDTree(self.output.x_lst)
+        return self._tree
+
+    def _num_neighbors(self):
+        rho = len(self.output.x_lst) / self.primitive_cell.get_volume()
+        return int(1.2 * 4 / 3 * np.pi * self.unit_cell.cutoff**3 * rho)
+
+    def get_energy(self, x):
+        dist, indices = self.tree.query(
+            x, k=self._num_neighbors, distance_upper_bound=self.unit_cell.cutoff
+        )
+        return self.input.increment * np.exp(-dist**2 / (2 * self.input.sigma**2)).sum(axis=-1)
