@@ -53,6 +53,11 @@ class TestUnitCell(unittest.TestCase):
         )
         self.assertTrue(np.allclose(dx, (self.unit_cell.mesh - x)[indices]))
 
+    def test_get_energy(self):
+        x = np.random.random(3)
+        self.unit_cell.append_positions(x)
+        self.assertLessEqual(self.unit_cell.get_energy(x), -self.unit_cell.increment)
+
 
 if __name__ == "__main__":
     unittest.main()
