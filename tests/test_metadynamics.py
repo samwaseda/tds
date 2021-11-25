@@ -26,7 +26,7 @@ class TestUnitCell(unittest.TestCase):
     def test_num_neighbors(self):
         x_center = np.sum(0.5 * self.primitive_cell.cell, axis=-1)
         x = self.unit_cell.x_to_s(np.random.randn(10, 3) + x_center)
-        dist, _ = self.unit_cell.tree.query(
+        dist, _ = self.unit_cell.tree_mesh.query(
             x, k=self.unit_cell.num_neighbors, distance_upper_bound=self.unit_cell.cutoff
         )
         self.assertLess(np.sum(dist < np.inf, axis=-1).max(), self.unit_cell.num_neighbors)
@@ -40,7 +40,18 @@ class TestUnitCell(unittest.TestCase):
     def test_append_position(self):
         x = np.random.random(3)
         self.unit_cell.append_positions(x)
-        self.assertAlmostEqual(np.linalg.norm(x-self.unit_cell.x_lst, axis=-1).min(), 0)
+        self.assertAlmostEqual(np.linalg.norm(x - self.unit_cell.x_lst, axis=-1).min(), 0)
+
+    def test_get_neighbors(self):
+        x = self.unit_cell._get_symmetric_x(np.random.random(3))
+        dist, dx, indices = self.unit_cell._get_neighbors(x)
+        self.assertTrue(np.allclose(dist, np.linalg.norm(dx, axis=-1)))
+        x = self.unit_cell.x_to_s(np.random.random((1, 3)))
+        dist, dx, indices = self.unit_cell._get_neighbors(x)
+        self.assertTrue(
+            np.allclose(dist, np.linalg.norm(self.unit_cell.mesh - x, axis=-1)[indices])
+        )
+        self.assertTrue(np.allclose(dx, (self.unit_cell.mesh - x)[indices]))
 
 
 if __name__ == "__main__":

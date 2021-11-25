@@ -13,7 +13,7 @@ class UnitCell:
         if self.mesh_spacing is None:
             self.mesh_spacing = self.sigma / 4
         self._mesh = None
-        self._tree = None
+        self._tree_mesh = None
         self._symmetry = None
         self._x_repeat = None
         self.cutoff = cutoff
@@ -43,10 +43,10 @@ class UnitCell:
         return self._mesh
 
     @property
-    def tree(self):
-        if self._tree is None:
-            self._tree = cKDTree(self.mesh.reshape(-1, 3))
-        return self._tree
+    def tree_mesh(self):
+        if self._tree_mesh is None:
+            self._tree_mesh = cKDTree(self.mesh.reshape(-1, 3))
+        return self._tree_mesh
 
     @property
     def symmetry(self):
@@ -58,22 +58,28 @@ class UnitCell:
         x = self.x_to_s(x_in)
         x = self.symmetry.generate_equivalent_points(x, return_unique=False)
         x = self.unit_cell.get_extended_positions(self.cutoff, positions=x)
-        return x[self.tree.query(x)[0] < self.cutoff]
+        return x[self.tree_mesh.query(x)[0] < self.cutoff]
+
+    def _get_neighbors(self, x):
+        dist, indices = self.tree_mesh.query(
+            x, k=self.num_neighbors, distance_upper_bound=self.cutoff
+        )
+        cond = dist < np.inf
+        indices = indices[cond]
+        dx = self.mesh.reshape(-1, 3)[indices] - x[np.indices(cond.shape)[0][cond]]
+        return dist[cond], dx, np.unravel_index(indices, self.mesh.shape[:-1])
 
     def append_positions(self, x_in, symmetrize=True):
         if symmetrize:
             x = self._get_symmetric_x(x_in)
         self._x_lst.extend(x)
-        dist, indices = self.tree.query(x, k=self.num_neighbors, distance_upper_bound=self.cutoff)
-        cond = dist < np.inf
-        dx = self.mesh.reshape(-1, 3)[indices[cond]] - x[np.indices(indices.shape)[0][cond]]
-        unraveled_indices = np.unravel_index(indices[cond], self.mesh.shape[:-1])
+        dist, dx, unraveled_indices = self._get_neighbors(x)
         self.dBds[unraveled_indices] += self.increment / self.sigma**2 * dx * np.exp(
-            -dist[cond]**2 / (2 * self.sigma**2)
+            -dist**2 / (2 * self.sigma**2)
         )[:, np.newaxis]
 
     def _get_index(self, x):
-        return np.unravel_index(self.tree.query(self.x_to_s(x))[1], self.mesh.shape[:-1])
+        return np.unravel_index(self.tree_mesh.query(self.x_to_s(x))[1], self.mesh.shape[:-1])
 
     def get_force(self, x):
         return self.dBds[self._get_index(x)]
@@ -81,6 +87,21 @@ class UnitCell:
     @property
     def x_lst(self):
         return np.array(self._x_lst)
+
+    @property
+    def tree_output(self):
+        return cKDTree(self.x_lst)
+
+    @property
+    def _num_neighbors_x_lst(self):
+        rho = len(self.x_lst) / self.unit_cell.get_volume()
+        return int(1.5 * 4 / 3 * np.pi * self.cutoff**3 * rho)
+
+    def get_energy(self, x):
+        dist, indices = self.tree_output.query(
+            self.x_to_s(x), k=self._num_neighbors_x_lst, distance_upper_bound=self.cutoff
+        )
+        return -self.increment * np.exp(-dist**2 / (2 * self.sigma**2)).sum(axis=-1)
 
 
 class Metadynamics(InteractiveWrapper):
@@ -171,19 +192,5 @@ class Metadynamics(InteractiveWrapper):
     def write_input(self):
         pass
 
-    @property
-    def tree(self):
-        if self._tree is None:
-            self._tree = cKDTree(self.output.x_lst)
-        return self._tree
-
-    @property
-    def _num_neighbors(self):
-        rho = len(self.output.x_lst) / self.primitive_cell.get_volume()
-        return int(1.2 * 4 / 3 * np.pi * self.unit_cell.cutoff**3 * rho)
-
     def get_energy(self, x):
-        dist, indices = self.tree.query(
-            self.unit_cell.x_to_s(x), k=self._num_neighbors, distance_upper_bound=self.unit_cell.cutoff
-        )
-        return -self.input.increment * np.exp(-dist**2 / (2 * self.input.sigma**2)).sum(axis=-1)
+        return self.unit_cell.get_energy(x)
