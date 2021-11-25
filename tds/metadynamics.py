@@ -95,7 +95,7 @@ class UnitCell:
     @property
     def _num_neighbors_x_lst(self):
         rho = len(self.x_lst) / self.unit_cell.get_volume()
-        return int(1.5 * 4 / 3 * np.pi * self.cutoff**3 * rho)
+        return np.max([int(1.5 * 4 / 3 * np.pi * self.cutoff**3 * rho), 20])
 
     def get_energy(self, x):
         dist, indices = self.tree_output.query(

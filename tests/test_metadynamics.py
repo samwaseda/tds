@@ -65,6 +65,15 @@ class TestUnitCell(unittest.TestCase):
             np.sum(dist < np.inf, axis=-1).max(), self.unit_cell._num_neighbors_x_lst
         )
 
+    def test_get_force(self):
+        x = np.random.random((1, 3))
+        x = self.unit_cell.x_to_s(x)
+        self.unit_cell.append_positions(x, symmetrize=False)
+        force_max = self.unit_cell.increment / self.unit_cell.sigma * np.exp(-1 / 2)
+        self.assertLess(
+            abs(force_max - np.linalg.norm(self.unit_cell.dBds, axis=-1).max()), 1.0e-4
+        )
+
 
 if __name__ == "__main__":
     unittest.main()
