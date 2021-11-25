@@ -57,6 +57,11 @@ class TestUnitCell(unittest.TestCase):
         x = np.random.random(3)
         self.unit_cell.append_positions(x)
         self.assertLessEqual(self.unit_cell.get_energy(x), -self.unit_cell.increment)
+        x = self.unit_cell.x_to_s(x)
+        dist, _ = self.tree_output.query(
+            x, k=self.unit_cell._num_neighbors_x_lst, distance_upper_bound=self.unit_cell.cutoff
+        )
+        self.assertLess(np.sum(dist < np.inf, axis=-1).max(), self.unit_cell._num_neighbors_x_lst)
 
 
 if __name__ == "__main__":
