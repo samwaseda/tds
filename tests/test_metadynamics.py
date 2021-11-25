@@ -37,6 +37,11 @@ class TestUnitCell(unittest.TestCase):
             len(np.unique(self.unit_cell.symmetry.get_arg_equivalent_sites(x))), 1
         )
 
+    def test_append_position(self):
+        x = np.random.random(3)
+        self.unit_cell.append_positions(x)
+        self.assertAlmostEqual(np.linalg.norm(x-self.unit_cell.x_lst, axis=-1).min(), 0)
+
 
 if __name__ == "__main__":
     unittest.main()
