@@ -171,17 +171,19 @@ class Metadynamics(InteractiveWrapper):
     def write_input(self):
         pass
 
+    @property
     def tree(self):
         if self._tree is None:
             self._tree = cKDTree(self.output.x_lst)
         return self._tree
 
+    @property
     def _num_neighbors(self):
         rho = len(self.output.x_lst) / self.primitive_cell.get_volume()
         return int(1.2 * 4 / 3 * np.pi * self.unit_cell.cutoff**3 * rho)
 
     def get_energy(self, x):
         dist, indices = self.tree.query(
-            x, k=self._num_neighbors, distance_upper_bound=self.unit_cell.cutoff
+            self.unit_cell.x_to_s(x), k=self._num_neighbors, distance_upper_bound=self.unit_cell.cutoff
         )
-        return self.input.increment * np.exp(-dist**2 / (2 * self.input.sigma**2)).sum(axis=-1)
+        return -self.input.increment * np.exp(-dist**2 / (2 * self.input.sigma**2)).sum(axis=-1)
