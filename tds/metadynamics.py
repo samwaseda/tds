@@ -69,9 +69,9 @@ class UnitCell:
         dx = self.mesh.reshape(-1, 3)[indices] - x[np.indices(cond.shape)[0][cond]]
         return dist[cond], dx, np.unravel_index(indices, self.mesh.shape[:-1])
 
-    def append_positions(self, x_in, symmetrize=True):
+    def append_positions(self, x, symmetrize=True):
         if symmetrize:
-            x = self._get_symmetric_x(x_in)
+            x = self._get_symmetric_x(x)
         self._x_lst.extend(x)
         dist, dx, unraveled_indices = self._get_neighbors(x)
         self.dBds[unraveled_indices] += self.increment / self.sigma**2 * dx * np.exp(
