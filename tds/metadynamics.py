@@ -153,6 +153,7 @@ class Metadynamics(InteractiveWrapper):
         return self._unit_cell
 
     def run_static(self):
+        self.status.running = True
         self.ref_job_initialize()
         self.ref_job.run()
         self.ref_job._generic_input["n_print"] = int(self.input.number_of_steps / 50)
@@ -160,6 +161,7 @@ class Metadynamics(InteractiveWrapper):
         self.ref_job._interactive_lib_command('fix 2 all external pf/callback 1 1')
         self.ref_job._interactive_library.set_fix_external_callback("2", self.callback)
         self.ref_job.run()
+        self.status.collect = True
         self.ref_job.interactive_close()
         self.output.x_lst = self.unit_cell.x_lst
         self.status.finished = True
