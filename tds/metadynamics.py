@@ -5,13 +5,13 @@ from pyiron_atomistics.atomistics.job.interactivewrapper import InteractiveWrapp
 
 
 class UnitCell:
-    def __init__(self, unit_cell, sigma, increment, mesh_spacing=None, cutoff=None, symprec=1.0e-2):
+    def __init__(self, unit_cell, sigma, increment, spacing=None, cutoff=None, symprec=1.0e-2):
         self.unit_cell = unit_cell
         self.sigma = sigma
         self.increment = increment
-        self.mesh_spacing = mesh_spacing
-        if self.mesh_spacing is None:
-            self.mesh_spacing = self.sigma / 4
+        self.spacing = spacing
+        if self.spacing is None:
+            self.spacing = self.sigma / 4
         self._mesh = None
         self._tree_mesh = None
         self._symmetry = None
@@ -21,7 +21,7 @@ class UnitCell:
         self._cell_inv = None
         if self.cutoff is None:
             self.cutoff = 4 * sigma
-        self.num_neighbors = int(1.5 * 4 / 3 * np.pi * self.cutoff**3 / self.mesh_spacing**3)
+        self.num_neighbors = int(1.5 * 4 / 3 * np.pi * self.cutoff**3 / self.spacing**3)
         self.dBds = np.zeros_like(self.mesh)
         self._symmetry = None
         self._symprec = 1.0e-2
@@ -37,7 +37,7 @@ class UnitCell:
     def mesh(self):
         if self._mesh is None:
             self._mesh = np.einsum('j...,ji->...i', np.meshgrid(
-                *[np.linspace(0, 1, np.rint(c / self.mesh_spacing).astype(int)) for c in self.cell],
+                *[np.linspace(0, 1, np.rint(c / self.spacing).astype(int)) for c in self.cell],
                 indexing='ij'
             ), self.unit_cell.cell)
         return self._mesh
@@ -74,9 +74,13 @@ class UnitCell:
             x = self._get_symmetric_x(x)
         self._x_lst.extend(x)
         dist, dx, unraveled_indices = self._get_neighbors(x)
-        self.dBds[unraveled_indices] += self.increment / self.sigma**2 * dx * np.exp(
-            -dist**2 / (2 * self.sigma**2)
-        )[:, np.newaxis]
+        np.add.at(
+            self.dBds,
+            unraveled_indices,
+            self.increment / self.sigma**2 * dx * np.exp(
+                -dist**2 / (2 * self.sigma**2)
+            )[:, np.newaxis]
+        )
 
     def _get_index(self, x):
         return np.unravel_index(self.tree_mesh.query(self.x_to_s(x))[1], self.mesh.shape[:-1])
@@ -116,7 +120,7 @@ class Metadynamics(InteractiveWrapper):
         self.input.increment = 0.001
         self.input.sigma = 0.38105
         self.input.cutoff = None
-        self.input.mesh_spacing = None
+        self.input.spacing = None
         self.input.symprec = 1.0e-2
         self._unit_cell = None
         self.input.x_lst = []
@@ -140,7 +144,7 @@ class Metadynamics(InteractiveWrapper):
                 unit_cell=self.primitive_cell,
                 sigma=self.input.sigma,
                 increment=self.input.increment,
-                mesh_spacing=self.input.mesh_spacing,
+                spacing=self.input.spacing,
                 cutoff=self.input.cutoff,
                 symprec=self.input.symprec
             )
@@ -200,7 +204,7 @@ class Metadynamics(InteractiveWrapper):
 
     @property
     def filling_rate(self):
-        dEV = np.sqrt(np.pi * self.input.sigma**2)**3 * self.input.increment
+        dEV = (np.sqrt(np.pi) * self.input.sigma)**3 * self.input.increment
         V_tot = self.primitive_cell.get_volume()
         N_sym = len(self.unit_cell.symmetry.rotations)
         N_freq = self.input.update_every_n_steps
