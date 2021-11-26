@@ -149,6 +149,7 @@ class Metadynamics(InteractiveWrapper):
         return self._unit_cell
 
     def run_static(self):
+        self.ref_job_initialize()
         self.ref_job.run()
         self.ref_job._generic_input["n_print"] = int(self.input.number_of_steps / 50)
         self.ref_job._generic_input["n_ionic_steps"] = self.input.number_of_steps
@@ -188,6 +189,8 @@ class Metadynamics(InteractiveWrapper):
             group_name=group_name
         )
         self.output.from_hdf(hdf=self.project_hdf5, group_name='output')
+        if len(self.output.x_lst) > 0:
+            self.unit_cell._x_lst.extend(self.output.x_lst)
 
     def write_input(self):
         pass
