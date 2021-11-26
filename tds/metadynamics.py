@@ -197,3 +197,11 @@ class Metadynamics(InteractiveWrapper):
 
     def get_energy(self, x):
         return self.unit_cell.get_energy(x)
+
+    @property
+    def filling_rate(self):
+        dEV = np.sqrt(np.pi * self.input.sigma**2)**3 * self.input.increment
+        V_tot = self.primitive_cell.get_volume()
+        N_sym = len(self.unit_cell.symmetry.rotations)
+        N_freq = self.input.update_every_n_steps
+        return dEV / V_tot * N_sym / N_freq
