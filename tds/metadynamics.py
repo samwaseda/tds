@@ -122,8 +122,9 @@ class Metadynamics(InteractiveWrapper):
         self.input.cutoff = None
         self.input.spacing = None
         self.input.symprec = 1.0e-2
-        self.input.e_prefactor = 4.462863040237372
-        self.input.e_decay = 1.0889985357267413
+        self.input.e_prefactor = 3.0227679
+        self.input.e_decay = 1.30318
+        self.input.num_neighbors = 20
         self._unit_cell = None
         self.input.x_lst = []
         self.output.x_lst = []
@@ -132,13 +133,12 @@ class Metadynamics(InteractiveWrapper):
     def prefill_histo(self):
         if not np.isclose(self.input.e_prefactor, 0):
             neigh = self.unit_cell.unit_cell.get_neighborhood(
-                self.unit_cell.mesh, num_neighbors=1
+                self.unit_cell.mesh, num_neighbors=self.input.num_neighbors
             )
-            v = neigh.vecs.squeeze()
-            d = neigh.distances.squeeze()
-            self.unit_cell.dBds = self.input.e_prefactor * self.input.e_decay * np.einsum(
-                '...i,...,...->...i',
-                v, 1 / (d + np.isclose(d, 0)), np.exp(-self.input.e_decay * d)
+            self.unit_cell.dBds = 2 * self.input.e_prefactor * self.input.e_decay * np.einsum(
+                '...ni,...n->...i',
+                neigh.vecs,
+                np.exp(-self.input.e_decay * neigh.distances**2)
             )
 
     @property
@@ -220,8 +220,10 @@ class Metadynamics(InteractiveWrapper):
         return self.unit_cell.get_energy(x)
 
     def _get_prefill_energy(self, x):
-        d = self.unit_cell.unit_cell.get_neighborhood(x, num_neighbors=1).distances.squeeze()
-        return self.input.e_prefactor * np.exp(-self.input.e_decay * d)
+        d = self.unit_cell.unit_cell.get_neighborhood(
+            x, num_neighbors=self.input.num_neighbors
+        ).distances
+        return self.input.e_prefactor * np.exp(-self.input.e_decay * d**2).sum(axis=-1)
 
     def get_energy(self, x):
         return self._get_histo_energy(x) + self._get_prefill_energy(x)
