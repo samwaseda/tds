@@ -125,10 +125,15 @@ class Metadynamics(InteractiveWrapper):
         self.input.e_prefactor = 3.0227679
         self.input.e_decay = 1.30318
         self.input.num_neighbors = 20
+        self.input.unit_length = 0
+        self.input.track_vacancy = False
         self._unit_cell = None
         self.input.x_lst = []
         self.output.x_lst = []
         self._tree = None
+        self._mass_ratios = None
+        self.total_displacements = None
+        self.x_previous = None
 
     def prefill_histo(self):
         if not np.isclose(self.input.e_prefactor, 0):
@@ -167,6 +172,13 @@ class Metadynamics(InteractiveWrapper):
                 self.unit_cell.append_positions(self.input.x_lst, symmetrize=False)
         return self._unit_cell
 
+    @property
+    def mass_ratios(self):
+        if self._mass_ratios is None:
+            self._mass_ratios = self.structure.get_masses()
+            self._mass_ratios /= self._mass_ratios.sum()
+        return self._mass_ratios
+
     def run_static(self):
         self.status.running = True
         self.ref_job_initialize()
@@ -182,14 +194,36 @@ class Metadynamics(InteractiveWrapper):
         self.status.finished = True
         self.to_hdf()
 
+    def get_x_shift(self):
+        x_v = -self.mass_ratios[-1] * self.total_displacements[-1]
+        x_v -= self.input.unit_length * np.einsum(
+            'i,ij->j',
+            1 - self.mass_ratios[:-1],
+            np.rint(self.total_displacements[:-1] / self.input.unit_length),
+        )
+        return self.structure.get_wrapped_coordinates(x_v)
+
+    def append_displacement(self, x):
+        if self.x_previous is None:
+            self.x_previous = self.structure.positions
+        if self.total_displacements is None:
+            self.total_displacements = np.zeros_like(self.structure.positions)
+        self.total_displacements += self.structure.get_wrapped_coordinates(x - self.x_previous)
+        self.x_previous = x.copy()
+
     def callback(self, caller, ntimestep, nlocal, tag, x, fext):
         tags = tag.flatten().argsort()
         fext.fill(0)
-        f = self.get_force(x[tags[-1]])
+        x_sorted = x[tags]
+        x_shift = 0
+        if self.input.track_vacancy:
+            self.append_displacement(x_sorted)
+            x_shift = self.get_x_shift()
+        f = self.get_force(x_sorted[-1] - x_shift)
         fext[tags[-1]] += f
         fext[tags[:-1]] -= f / (len(tag) - 1)
         if ((ntimestep + 1) % self.input.update_every_n_steps) == 0:
-            self.update_s(x[tags[-1]])
+            self.update_s(x_sorted[-1] - x_shift)
 
     def get_force(self, x):
         return self.unit_cell.get_force(x)
