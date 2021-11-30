@@ -216,7 +216,7 @@ class Metadynamics(InteractiveWrapper):
         fext.fill(0)
         x_sorted = x[tags]
         x_shift = 0
-        if self.input.track_vacancy:
+        if self.input.track_vacancy and self.input.unit_length > 0:
             self.append_displacement(x_sorted)
             x_shift = self.get_x_shift()
         f = self.get_force(x_sorted[-1] - x_shift)
