@@ -117,7 +117,7 @@ class Metadynamics(InteractiveWrapper):
         self.input.number_of_steps = int(1e5)
         self.input.temperature = 300
         self.input.update_every_n_steps = 100
-        self.input.increment = 0.001
+        self.input.increment = 0.0001
         self.input.sigma = 0.38105
         self.input.cutoff = None
         self.input.spacing = None
