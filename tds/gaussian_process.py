@@ -1,18 +1,27 @@
 import numpy as np
+from sklearn.gaussian_process import GaussianProcessRegressor
+from sklearn.gaussian_process.kernels import RBF, ConstantKernel
 
 
 class GaussianProcess:
-    def __init__(self, function, min_samples=4, max_error=1.0e-3, length=2):
+    def __init__(self, function, min_samples=5, max_error=1.0e-3):
         self.function = function
         self.min_samples = min_samples
         self.max_error = max_error
         self._x_lst = []
         self._y_lst = []
-        self.length = length
         self._sigma_lst = []
         self._error_lst = []
-        self._k_ij_inv = None
         self._sigma_to_error = None
+        self._regressor = None
+
+    @property
+    def regressor(self):
+        if self._regressor is None:
+            kernel = ConstantKernel() * RBF()
+            self._regressor = GaussianProcessRegressor(kernel=kernel)
+            self._regressor.fit(self.x_lst, self.y_lst)
+        return self._regressor
 
     @property
     def x_lst(self):
@@ -22,16 +31,8 @@ class GaussianProcess:
     def y_lst(self):
         return np.asarray(self._y_lst)
 
-    @property
-    def k_ij_inv(self):
-        if self._k_ij_inv is None:
-            self._k_ij_inv = np.linalg.inv(self.get_k(self.x_lst, self.x_lst))
-        return self._k_ij_inv
-
     def get_sigma(self, x):
-        k_si = self.get_k_si(x)
-        K = self.get_k_ss(x) - np.einsum('ij,jk,lk->il', k_si, self.k_ij_inv, k_si, optimize=True)
-        return np.sqrt(np.squeeze(np.absolute(K.diagonal())))
+        return np.squeeze(self.regressor.predict(np.atleast_2d(x), return_std=True)[1])
 
     def get_error(self, x):
         if len(self.x_lst) < self.min_samples:
@@ -46,41 +47,36 @@ class GaussianProcess:
             ) / np.square(self._sigma_lst).sum()
         return self._sigma_to_error
 
-    @property
-    def divisor(self):
-        return 2 * self.length**2
-
-    def get_k(self, x, y):
-        x = np.atleast_2d(x)
-        y = np.atleast_2d(y)
-        dx = x[..., :, np.newaxis, :] - y[..., np.newaxis, :, :]
-        return np.exp(-np.sum(dx**2, axis=-1) / self.divisor)
-
-    def get_k_ss(self, x):
-        return self.get_k(x, x)
-
-    def get_k_si(self, x):
-        return self.get_k(x, self.x_lst)
-
-    def append(self, x):
+    def append(self, x, y_real=None):
         y_est = None
         if len(self.x_lst) > self.min_samples - 2:
             self._sigma_lst.append(self.get_sigma(x))
             y_est = self._get_value(x)
         self._x_lst.append(x)
-        self._k_ij_inv = None
-        y_real = np.squeeze(self.function(x))
+        self._regressor = None
+        if y_real is None:
+            y_real = np.squeeze(self.function(x))
         self._y_lst.append(y_real)
         if y_est is not None:
             self._error_lst.append(np.squeeze(np.absolute(y_est - y_real)))
             self._sigma_to_error = None
 
+    def get_arg_max_error(self, x):
+        if len(self.x_lst) < self.min_samples:
+            return np.random.permutation(x)[0]
+        error = self.get_error(x)
+        if np.max(error) < self.max_error:
+            return None
+        return x[np.argmax(error)]
+
     def get_value(self, x_in):
-        n_dim = np.shape(x_in)[-1]
-        for ii, xx in enumerate(np.random.permutation(np.asarray(x_in).reshape(-1, n_dim))):
-            if self.get_error(xx) > self.max_error:
-                self.append(xx)
-        return self._get_value(x_in)
+        x = np.asarray(x_in).reshape(-1, np.shape(x_in)[-1])
+        while True:
+            xx = self.get_arg_max_error(x)
+            if xx is None:
+                break
+            self.append(xx)
+        return self._get_value(x).reshape(np.asarray(x_in).shape[:-1])
 
     def _get_value(self, x_in):
-        return np.einsum('...i,ij,j->...', self.get_k_si(x_in), self.k_ij_inv, self.y_lst).squeeze()
+        return np.squeeze(self.regressor.predict(np.atleast_2d(x_in)))
