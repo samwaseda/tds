@@ -13,7 +13,6 @@ class GaussianProcess:
         self._error_lst = []
         self._k_ij_inv = None
         self._sigma_to_error = None
-        self.n_dim = 1
 
     @property
     def x_lst(self):
@@ -26,11 +25,7 @@ class GaussianProcess:
     @property
     def k_ij_inv(self):
         if self._k_ij_inv is None:
-            self._k_ij_inv = np.linalg.inv(
-                np.exp(-np.sum((
-                    self.x_lst[:, np.newaxis, :] - self.x_lst[np.newaxis, :, :]
-                )**2, axis=-1) / self.divisor)
-            )
+            self._k_ij_inv = np.linalg.inv(self.get_k(self.x_lst, self.x_lst))
         return self._k_ij_inv
 
     def get_sigma(self, x):
@@ -46,24 +41,26 @@ class GaussianProcess:
     @property
     def sigma_to_error(self):
         if self._sigma_to_error is None:
-            self._sigma_to_error = np.dot(self._sigma_lst, self._error_lst) / np.square(self._sigma_lst).sum()
+            self._sigma_to_error = np.dot(
+                self._sigma_lst, self._error_lst
+            ) / np.square(self._sigma_lst).sum()
         return self._sigma_to_error
 
     @property
     def divisor(self):
         return 2 * self.length**2
 
+    def get_k(self, x, y):
+        x = np.atleast_2d(x)
+        y = np.atleast_2d(y)
+        dx = x[..., :, np.newaxis, :] - y[..., np.newaxis, :, :]
+        return np.exp(-np.sum(dx**2, axis=-1) / self.divisor)
+
     def get_k_ss(self, x):
-        x = np.asarray(x).reshape(-1, self.n_dim)
-        return np.exp(-np.sum((
-            x[:, np.newaxis, :] - x[np.newaxis, :, :]
-        )**2, axis=-1) / self.divisor)
+        return self.get_k(x, x)
 
     def get_k_si(self, x):
-        x = np.asarray(x).reshape(-1, self.n_dim)
-        return np.exp(-np.sum((
-            x[:, np.newaxis, :] - self.x_lst[np.newaxis, :, :]
-        )**2, axis=-1) / self.divisor)
+        return self.get_k(x, self.x_lst)
 
     def append(self, x):
         y_est = None
@@ -79,11 +76,11 @@ class GaussianProcess:
             self._sigma_to_error = None
 
     def get_value(self, x_in):
-        x = np.asarray(x_in).reshape(-1, self.n_dim)
-        for ii, xx in enumerate(np.random.permutation(x)):
+        n_dim = np.shape(x_in)[-1]
+        for ii, xx in enumerate(np.random.permutation(np.asarray(x_in).reshape(-1, n_dim))):
             if self.get_error(xx) > self.max_error:
                 self.append(xx)
-        return self._get_value(x)
+        return self._get_value(x_in)
 
     def _get_value(self, x_in):
-        return np.einsum('si,ij,j->s', self.get_k_si(x_in), self.k_ij_inv, self.y_lst).squeeze()
+        return np.einsum('...i,ij,j->...', self.get_k_si(x_in), self.k_ij_inv, self.y_lst).squeeze()
