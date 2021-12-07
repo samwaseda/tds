@@ -1,10 +1,11 @@
 import numpy as np
 from sklearn.gaussian_process import GaussianProcessRegressor
 from sklearn.gaussian_process.kernels import RBF, ConstantKernel
+from sklearn.cluster import DBSCAN
 
 
 class GaussianProcess:
-    def __init__(self, function, min_samples=5, max_error=1.0e-3):
+    def __init__(self, function, min_samples=2, max_error=1.0e-3):
         self.function = function
         self.min_samples = min_samples
         self.max_error = max_error
@@ -35,34 +36,46 @@ class GaussianProcess:
         return np.squeeze(self.regressor.predict(np.atleast_2d(x), return_std=True)[1])
 
     def get_error(self, x):
-        if len(self.x_lst) < self.min_samples:
+        if not self.is_enough:
             return np.inf
         return self.sigma_to_error * self.get_sigma(x)
 
     @property
     def sigma_to_error(self):
         if self._sigma_to_error is None:
-            self._sigma_to_error = np.dot(
-                self._sigma_lst, self._error_lst
-            ) / np.square(self._sigma_lst).sum()
+            if len(self._sigma_lst) > 0:
+                self._sigma_to_error = np.dot(
+                    self._sigma_lst, self._error_lst
+                ) / np.square(self._sigma_lst).sum()
+            else:
+                self._sigma_to_error = np.inf
         return self._sigma_to_error
 
-    def append(self, x, y_real=None):
+    def extend(self, x):
+        labels = DBSCAN(eps=0.001, min_samples=1).fit_predict(x)
+        x = x[np.unique(labels, return_index=True)[1]]
+        self._y_lst.extend(len(x)*[self._y_lst[-1]])
+        self._x_lst.extend(x)
+
+    def append(self, x):
         y_est = None
-        if len(self.x_lst) > self.min_samples - 2:
+        if self.is_enough:
             self._sigma_lst.append(self.get_sigma(x))
-            y_est = self._get_value(x)
+            y_est = self.predict(x)
         self._x_lst.append(x)
         self._regressor = None
-        if y_real is None:
-            y_real = np.squeeze(self.function(x))
+        y_real = np.squeeze(self.function(x))
         self._y_lst.append(y_real)
         if y_est is not None:
             self._error_lst.append(np.squeeze(np.absolute(y_est - y_real)))
             self._sigma_to_error = None
 
+    @property
+    def is_enough(self):
+        return len(np.unique(self.y_lst)) > self.min_samples
+
     def get_arg_max_error(self, x):
-        if len(self.x_lst) < self.min_samples:
+        if not self.is_enough:
             return np.random.permutation(x)[0]
         error = self.get_error(x)
         if np.max(error) < self.max_error:
@@ -76,7 +89,7 @@ class GaussianProcess:
             if xx is None:
                 break
             self.append(xx)
-        return self._get_value(x).reshape(np.asarray(x_in).shape[:-1])
+        return self.predict(x).reshape(np.asarray(x_in).shape[:-1])
 
-    def _get_value(self, x_in):
+    def predict(self, x_in):
         return np.squeeze(self.regressor.predict(np.atleast_2d(x_in)))

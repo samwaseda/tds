@@ -2,6 +2,7 @@ from scipy.spatial import cKDTree
 import numpy as np
 from pyiron_base.generic.datacontainer import DataContainer
 from pyiron_atomistics.atomistics.job.interactivewrapper import InteractiveWrapper
+from tds.gaussian_process import GaussianProcess
 
 
 class UnitCell:
@@ -25,6 +26,7 @@ class UnitCell:
         self.dBds = np.zeros_like(self.mesh)
         self._symmetry = None
         self._symprec = 1.0e-2
+        self._gaussian_process = None
 
     def x_to_s(self, x):
         return self.unit_cell.get_wrapped_coordinates(x)
@@ -54,11 +56,13 @@ class UnitCell:
             self._symmetry = self.unit_cell.get_symmetry(symprec=self._symprec)
         return self._symmetry
 
-    def _get_symmetric_x(self, x_in):
+    def _get_symmetric_x(self, x_in, cutoff=None):
+        if cutoff is None:
+            cutoff = self.cutoff
         x = self.x_to_s(x_in)
         x = self.symmetry.generate_equivalent_points(x, return_unique=False)
-        x = self.unit_cell.get_extended_positions(self.cutoff, positions=x)
-        return x[self.tree_mesh.query(x)[0] < self.cutoff]
+        x = self.unit_cell.get_extended_positions(cutoff, positions=x)
+        return x[self.tree_mesh.query(x)[0] < cutoff]
 
     def _get_neighbors(self, x):
         dist, indices = self.tree_mesh.query(
@@ -71,7 +75,7 @@ class UnitCell:
 
     def append_positions(self, x, symmetrize=True):
         if symmetrize:
-            x = self._get_symmetric_x(x)
+            x = self._get_symmetric_x(x, cutoff=self.sigma)
         self._x_lst.extend(x)
         dist, dx, unraveled_indices = self._get_neighbors(x)
         np.add.at(
@@ -101,9 +105,28 @@ class UnitCell:
         rho = len(self.x_lst) / self.unit_cell.get_volume()
         return np.max([int(1.5 * 4 / 3 * np.pi * self.cutoff**3 * rho), 20])
 
-    def get_energy(self, x):
+    @property
+    def gaussian_process(self):
+        if self._gaussian_process is None:
+            self._gaussian_process = GaussianProcess(self._get_energy)
+        return self._gaussian_process
+
+    def get_energy(self, x, reset_gp=False):
+        if reset_gp:
+            self.gaussian_process = None
+        s_in = self.x_to_s(x)
+        s = np.asarray(s_in).reshape(-1, np.shape(s_in)[-1])
+        while True:
+            ss = self.gaussian_process.get_arg_max_error(s)
+            if ss is None:
+                break
+            self.gaussian_process.append(ss)
+            self.gaussian_process.extend(self._get_symmetric_x(ss))
+        return self.gaussian_process.predict(s).reshape(s_in.shape[:-1])
+
+    def _get_energy(self, x):
         dist, indices = self.tree_output.query(
-            self.x_to_s(x), k=self._num_neighbors_x_lst, distance_upper_bound=self.cutoff
+            x, k=self._num_neighbors_x_lst, distance_upper_bound=self.cutoff
         )
         return -self.increment * np.exp(-dist**2 / (2 * self.sigma**2)).sum(axis=-1)
 
