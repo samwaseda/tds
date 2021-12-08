@@ -75,7 +75,7 @@ class UnitCell:
 
     def append_positions(self, x, symmetrize=True):
         if symmetrize:
-            x = self._get_symmetric_x(x, cutoff=self.sigma)
+            x = self._get_symmetric_x(x)
         self._x_lst.extend(x)
         dist, dx, unraveled_indices = self._get_neighbors(x)
         np.add.at(
@@ -121,7 +121,7 @@ class UnitCell:
             if ss is None:
                 break
             self.gaussian_process.append(ss)
-            self.gaussian_process.extend(self._get_symmetric_x(ss))
+            self.gaussian_process.extend(self._get_symmetric_x(ss, cutoff=self.sigma))
         return self.gaussian_process.predict(s).reshape(s_in.shape[:-1])
 
     def _get_energy(self, x):
