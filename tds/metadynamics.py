@@ -121,7 +121,7 @@ class UnitCell:
             if ss is None:
                 break
             self.gaussian_process.append(ss)
-            self.gaussian_process.extend(self._get_symmetric_x(ss, cutoff=self.sigma))
+            self.gaussian_process.extend(self._get_symmetric_x(ss, cutoff=self.cutoff/2))
         return self.gaussian_process.predict(s).reshape(s_in.shape[:-1])
 
     def _get_energy(self, x):
@@ -129,6 +129,12 @@ class UnitCell:
             x, k=self._num_neighbors_x_lst, distance_upper_bound=self.cutoff
         )
         return -self.increment * np.exp(-dist**2 / (2 * self.sigma**2)).sum(axis=-1)
+
+    def get_gradient(self, x):
+        return -self.gaussian_process.get_gradient(x)
+
+    def get_hessian(self, x):
+        return -self.gaussian_process.get_hessian(x)
 
 
 class Metadynamics(InteractiveWrapper):
@@ -269,17 +275,39 @@ class Metadynamics(InteractiveWrapper):
     def write_input(self):
         pass
 
-    def _get_histo_energy(self, x):
-        return self.unit_cell.get_energy(x)
-
     def _get_prefill_energy(self, x):
         d = self.unit_cell.unit_cell.get_neighborhood(
             x, num_neighbors=self.input.num_neighbors
         ).distances
         return self.input.e_prefactor * np.exp(-self.input.e_decay * d**2).sum(axis=-1)
 
+    def _get_prefill_gradient(self, x):
+        neigh = self.unit_cell.unit_cell.get_neighborhood(
+            x, num_neighbors=self.input.num_neighbors
+        )
+        return 2 * self.input.e_decay * self.input.e_prefactor * np.einsum(
+            '...ij,...i->...j', neigh.vecs, np.exp(-self.input.e_decay * neigh.distances**2)
+        )
+
+    def _get_prefill_hessian(self, x):
+        neigh = self.unit_cell.unit_cell.get_neighborhood(
+            x, num_neighbors=self.input.num_neighbors
+        )
+        H = 4 * self.input.e_decay**2 * np.einsum(
+            '...i,...j->...ij', neigh.vecs, neigh.vecs
+        ) + 2 * self.input.e_decay**2
+        return self.input.e_prefactor * np.einsum(
+            '...ijk,...i->...jk', H, np.exp(-self.input.e_decay * neigh.distances**2)
+        )
+
     def get_energy(self, x):
-        return self._get_histo_energy(x) + self._get_prefill_energy(x)
+        return self.unit_cell.get_energy(x) + self._get_prefill_energy(x)
+
+    def get_gradient(self, x):
+        return self.unit_cell.get_gradient(x) + self._get_prefill_gradient(x)
+
+    def get_hessian(self, x):
+        return self.unit_cell.get_hessian(x) + self._get_prefill_hessian(x)
 
     @property
     def filling_rate(self):

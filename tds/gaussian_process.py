@@ -109,7 +109,8 @@ class GaussianProcess:
     def get_gradient(self, x_in):
         x = np.array(x_in)
         return np.einsum(
-            'i,ij,ijk->jk', self.regressor.alpha_, self._get_k_val(x), self._get_x_diff(x)
+            'i,ij,ijk->jk', self.regressor.alpha_, self._get_k_val(x), self._get_x_diff(x),
+            optimize=True
         ).reshape(x.shape)
 
     def get_hessian(self, x_in):
@@ -117,5 +118,6 @@ class GaussianProcess:
         x_diff = self._get_x_diff(x)
         xx_diff = np.einsum('...i,...j->...ij', x_diff, x_diff) - 1 / self.length**2
         return np.einsum(
-            'i,ij,ijkl->jkl', self.regressor.alpha_, self._get_k_val(x), xx_diff
+            'i,ij,ijkl->jkl', self.regressor.alpha_, self._get_k_val(x), xx_diff,
+            optimize=True
         ).reshape(x.shape + (x.shape[-1], ))
