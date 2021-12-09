@@ -2,7 +2,7 @@ import numpy as np
 import pint
 
 
-def generate_displacements(structure, magnitude=100, decimals=10, symprec=1.0e-2):
+def generate_displacements(structure, symprec=1.0e-2):
     sym = structure.get_symmetry(symprec=symprec)
     indices, comp = np.unique(sym.arg_equivalent_vectors, return_index=True)
     ind_x, ind_y = np.unravel_index(comp, structure.positions.shape)
@@ -112,7 +112,7 @@ class Hessian:
         hn = (nu[3:] * 1e12 * self.unit.hertz * self.unit.planck_constant).to('eV').magnitude
         kBT = (temperature * self.unit.kelvin * self.unit.boltzmann_constant).to('eV').magnitude
         return 0.5 * np.sum(hn) + kBT * np.log(
-            1 - np.exp(-np.einsum('i,...->i...', hn, 1/kBT))
+            1 - np.exp(-np.einsum('i,...->i...', hn, 1 / kBT))
         ).sum(axis=0)
 
     @property
