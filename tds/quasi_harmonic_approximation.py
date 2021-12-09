@@ -65,19 +65,22 @@ class Hessian:
         ).reshape(-1, np.prod(self.structure.positions.shape))
         return forces[self.inequivalent_indices]
 
+    @property
+    def _x_outer(self):
+        return np.einsum(
+            'ik,ij->kj',
+            self.inequivalent_displacements,
+            self.inequivalent_displacements, optimize=True
+        )
+
     def get_hessian(self, forces=None):
         if forces is None and self.forces is None:
             raise AssertionError('Forces not set yet')
         if forces is not None:
             self.forces = forces
-        X = np.einsum(
-            'ik,ij->kj',
-            self.inequivalent_displacements,
-            self.inequivalent_displacements, optimize=True
-        )
         H = -np.einsum(
             'kj,in,ik->nj',
-            np.linalg.inv(X),
+            np.linalg.inv(self._x_outer),
             self.inequivalent_forces,
             self.inequivalent_displacements,
             optimize=True
