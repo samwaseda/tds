@@ -5,9 +5,7 @@ import pint
 def generate_displacements(structure, magnitude=100, decimals=10, symprec=1.0e-2):
     sym = structure.get_symmetry(symprec=symprec)
     random_vectors = magnitude * np.random.random(structure.positions.shape)
-    all_vec = np.absolute(np.einsum(
-        'ijk,ink->inj', sym.rotations, random_vectors[sym.permutations]
-    )).sum(axis=0) + sym.arg_equivalent_atoms[:, np.newaxis]
+    all_vec = sym.symmetrize_vectors(random_vectors) + sym.arg_equivalent_atoms[:, np.newaxis]
     ind_x, ind_y = np.unravel_index(np.unique(
         np.round(all_vec.flatten(), decimals=decimals), return_index=True
     )[1], all_vec.shape)
