@@ -4,12 +4,9 @@ import pint
 
 def generate_displacements(structure, magnitude=100, decimals=10, symprec=1.0e-2):
     sym = structure.get_symmetry(symprec=symprec)
-    random_vectors = magnitude * np.random.random(structure.positions.shape)
-    all_vec = sym.symmetrize_vectors(random_vectors) + sym.arg_equivalent_atoms[:, np.newaxis]
-    ind_x, ind_y = np.unravel_index(np.unique(
-        np.round(all_vec.flatten(), decimals=decimals), return_index=True
-    )[1], all_vec.shape)
-    displacements = np.zeros((len(ind_x),) + all_vec.shape)
+    indices, comp = np.unique(sym.arg_equivalent_vectors, return_index=True)
+    ind_x, ind_y = np.unravel_index(comp, structure.positions.shape)
+    displacements = np.zeros((len(ind_x),) + structure.positions.shape)
     displacements[np.arange(len(ind_x)), ind_x, ind_y] = 1
     return displacements
 
@@ -24,6 +21,7 @@ class Hessian:
         self._forces = None
         self._inequivalent_displacements = None
         self._symprec = symprec
+        self._unit = None
 
     @property
     def symmetry(self):
@@ -89,8 +87,9 @@ class Hessian:
 
     @property
     def _to_THz(self):
-        u = pint.UnitRegistry()
-        return np.sqrt((1 * (u.electron_volt / u.angstrom**2 / u.amu)).to('THz**2').magnitude)
+        return np.sqrt((
+            1 * (self.unit.electron_volt / self.unit.angstrom**2 / self.unit.amu)
+        ).to('THz**2').magnitude)
 
     @property
     def _mass_tensor(self):
@@ -101,6 +100,20 @@ class Hessian:
         H = self.get_hessian(forces=forces)
         nu_square = np.linalg.eigh(H / self._mass_tensor)[0]
         return np.sign(nu_square) * np.sqrt(np.absolute(nu_square)) / (2 * np.pi) * self._to_THz
+
+    @property
+    def unit(self):
+        if self._unit is None:
+            self._unit = pint.UnitRegistry()
+        return self._unit
+
+    def get_free_energy(self, temperature, forces=None):
+        nu = self.get_vibrational_frequencies(forces=forces)
+        hn = (nu[3:] * 1e12 * self.unit.hertz * self.unit.planck_constant).to('eV').magnitude
+        kBT = (temperature * self.unit.kelvin * self.unit.boltzmann_constant).to('eV').magnitude
+        return 0.5 * np.sum(hn) + kBT * np.log(
+            1 - np.exp(-np.einsum('i,...->i...', hn, 1/kBT))
+        ).sum(axis=0)
 
     @property
     def minimum_displacements(self):
