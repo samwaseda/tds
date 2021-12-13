@@ -385,7 +385,7 @@ class Thermodynamics:
 
     def _get_min_strain(self, pressure):
         c = self.coeff
-        return (-c[:, 2] - np.sqrt(
+        return (-c[:, 2] + np.sqrt(
             c[:, 2]**2 - 3 * c[:, 3] * (c[:, 1] + np.array([pressure]).flatten()[..., np.newaxis])
         )) / (3 * c[:, 3])
 

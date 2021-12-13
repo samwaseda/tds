@@ -5,15 +5,12 @@ from sklearn.cluster import DBSCAN
 
 
 class GaussianProcess:
-    def __init__(self, function, min_samples=2, max_error=1.0e-3):
+    def __init__(self, function, min_samples=2, max_error=1.0e-2):
         self.function = function
         self.min_samples = min_samples
         self.max_error = max_error
         self._x_lst = []
         self._y_lst = []
-        self._sigma_lst = []
-        self._error_lst = []
-        self._sigma_to_error = None
         self._regressor = None
 
     @property
@@ -42,33 +39,18 @@ class GaussianProcess:
 
     @property
     def sigma_to_error(self):
-        if self._sigma_to_error is None:
-            if len(self._sigma_lst) > 0:
-                self._sigma_to_error = np.dot(
-                    self._sigma_lst, self._error_lst
-                ) / np.square(self._sigma_lst).sum()
-            else:
-                self._sigma_to_error = np.inf
-        return self._sigma_to_error
+        return 1
 
-    def extend(self, x):
+    def replicate(self, x):
         labels = DBSCAN(eps=0.001, min_samples=1).fit_predict(x)
         x = x[np.unique(labels, return_index=True)[1]]
         self._y_lst.extend(len(x) * [self._y_lst[-1]])
         self._x_lst.extend(x)
 
     def append(self, x):
-        y_est = None
-        if self.is_enough:
-            self._sigma_lst.append(self.get_sigma(x))
-            y_est = self.predict(x)
         self._x_lst.append(x)
+        self._y_lst.append(np.squeeze(self.function(x)))
         self._regressor = None
-        y_real = np.squeeze(self.function(x))
-        self._y_lst.append(y_real)
-        if y_est is not None:
-            self._error_lst.append(np.squeeze(np.absolute(y_est - y_real)))
-            self._sigma_to_error = None
 
     @property
     def is_enough(self):

@@ -108,7 +108,7 @@ class UnitCell:
     @property
     def gaussian_process(self):
         if self._gaussian_process is None:
-            self._gaussian_process = GaussianProcess(self._get_energy)
+            self._gaussian_process = GaussianProcess(self._get_energy, max_error=1.0e-2)
         return self._gaussian_process
 
     def get_energy(self, x, reset_gp=False):
@@ -121,7 +121,7 @@ class UnitCell:
             if ss is None:
                 break
             self.gaussian_process.append(ss)
-            self.gaussian_process.extend(self._get_symmetric_x(ss, cutoff=self.cutoff/2))
+            self.gaussian_process.replicate(self._get_symmetric_x(ss, cutoff=self.cutoff/4))
         return self.gaussian_process.predict(s).reshape(s_in.shape[:-1])
 
     def _get_energy(self, x):
