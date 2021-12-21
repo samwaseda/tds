@@ -211,7 +211,7 @@ class Metadynamics(InteractiveWrapper):
     def run_static(self):
         self.status.running = True
         self.ref_job_initialize()
-        self.ref_job.set_fix_external(self.callback, overload_internal_callback=True)
+        self.ref_job.set_fix_external(self.callback, overload_internal_fix_external=True)
         self.ref_job.run()
         self.status.collect = True
         self.ref_job.interactive_close()
