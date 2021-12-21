@@ -1,6 +1,7 @@
 import numpy as np
 from pyiron_atomistics.atomistics.job.interactivewrapper import InteractiveWrapper
 from pyiron_base import DataContainer
+from tqdm import tqdm
 
 
 class ART(InteractiveWrapper):
@@ -24,7 +25,7 @@ class ART(InteractiveWrapper):
 
     @property
     def non_diff_id(self):
-        if self._non_diff_id:
+        if self._non_diff_id is None:
             arr = np.arange(len(self.structure))
             self._non_diff_id = arr[arr != self.input.diff_id]
         return self._non_diff_id
@@ -47,7 +48,9 @@ class ART(InteractiveWrapper):
     @property
     def dx(self):
         if self._dx is None:
-            self._dx = np.random.randn(self.input.number_of_displacements, 3) * self.dx_magnitude
+            self._dx = np.random.randn(
+                self.input.number_of_displacements, 3
+            ) * self.input.dx_magnitude
         return self._dx
 
     def update_data(self):
@@ -82,7 +85,7 @@ class ART(InteractiveWrapper):
     @property
     def gamma(self):
         return self.input.gamma_prefactor * np.exp(
-            -self.input.gamma_decay * self.eigenvalues[0]
+            self.input.gamma_decay * self.eigenvalues[0]
         )
 
     @property
@@ -107,31 +110,32 @@ class ART(InteractiveWrapper):
     def run_static(self):
         self.ref_job_initialize()
         f_prev = None
-        for _ in range(self.ionic_steps):
+        structure = self.structure.copy()
+        for _ in tqdm(range(self.input.ionic_steps)):
             self.reset()
-            self.ref_job.structure = self.structure.copy()
+            self.ref_job.structure = structure.copy()
             self.ref_job.run()
             self.current_force = np.asarray(self.ref_job.interactive_forces_getter())
             if np.linalg.norm(self.current_force, axis=-1).max() < self.input.ionic_force_tolerance:
                 break
             for i, x in enumerate(self.dx):
-                self.ref_job.structure = self.structure.copy()
+                self.ref_job.structure = structure.copy()
                 self.ref_job.structure.positions[self.input.diff_id] += x
                 self.ref_job.run()
                 self.f_lst[i] = self.ref_job.interactive_forces_getter()
-            self.structure.positions += self.displacement
+            structure.positions += self.displacement
             if f_prev is not None:
-                if np.sum(self.current_force[:-1] * f_prev[:-1]) > 0:
+                if np.sum(self.current_force[self.non_diff_id] * f_prev) > 0:
                     self.input.step_size *= 1.1
                 else:
                     self.input.step_size *= 0.5
-            f_prev = self.current_force
-
-    def collect_output(self):
-        super().collect_output()
-        self.output.eigenvalues.append(self.eigenvalues)
-        self.output.eigenvectors.append(self.eigenvectors)
-        self.output.step_size.append(self.input.step_size)
+            f_prev = self.current_force.copy()[self.non_diff_id]
+            self.output.eigenvalues.append(self.eigenvalues)
+            self.output.eigenvectors.append(self.eigenvectors)
+            self.output.step_size.append(self.input.step_size)
+        self.output.eigenvalues = np.array(self.output.eigenvalues)
+        self.output.eigenvectors = np.array(self.output.eigenvectors)
+        self.output.step_size = np.array(self.output.step_size)
 
     def to_hdf(self, hdf=None, group_name=None):
         super().to_hdf(
@@ -158,9 +162,9 @@ class Input(DataContainer):
     """
 
     def __init__(self, input_file_name=None, table_name="input"):
-        self.ionic_steps = 100
-        self.number_of_displacements = 5
-        self.decay = 0.9
+        self.ionic_steps = 200
+        self.number_of_displacements = 3
+        self.decay = 0.5
         self.ionic_force_tolerance = 1.0e-2
         self.harmonic_force = 1.0e-2
         self.step_size = 0.1

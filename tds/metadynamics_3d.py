@@ -142,9 +142,6 @@ class Metadynamics(InteractiveWrapper):
         super().__init__(project, job_name)
         self.input = DataContainer(table_name='input')
         self.output = DataContainer(table_name='output')
-        self.input.n_print = 1000
-        self.input.number_of_steps = int(1e5)
-        self.input.temperature = 300
         self.input.update_every_n_steps = 100
         self.input.increment = 0.0001
         self.input.sigma = 0.38105
