@@ -74,12 +74,11 @@ class Metadynamics(InteractiveWrapper):
     def callback(self, caller, ntimestep, nlocal, tag, x, fext):
         tags = tag.flatten().argsort()
         fext.fill(0)
-        x_sorted = x[tags]
-        f = self.get_force(x_sorted[-1, self.input.axis])
+        f = self.get_force(x[tags[-1], self.input.axis])
         fext[tags[-1], self.input.axis] += f
         fext[tags[:-1], self.input.axis] -= f / (len(tag) - 1)
         if ((ntimestep + 1) % self.input.update_every_n_steps) == 0:
-            self.update_s(x_sorted[-1, self.input.axis])
+            self.update_s(x[tags[-1], self.input.axis])
 
     def get_force(self, x):
         index = int(x / self.spacing) % len(self.mesh)
@@ -88,7 +87,8 @@ class Metadynamics(InteractiveWrapper):
     def _get_symmetric_x(self, x):
         x_scaled = x / self.structure.cell[self.input.axis, self.input.axis]
         x_new = self.symmetry['rotations'] * x_scaled + self.symmetry['translations']
-        x_repeated = (np.floor(x_new)[:, None] + np.array([-1, 0, 1])).flatten()
+        x_new -= np.floor(x_new)
+        x_repeated = (x_new[:, None] + np.array([-1, 0, 1])).flatten()
         return self.structure.cell[self.input.axis, self.input.axis] * x_repeated
 
     def update_s(self, x):
