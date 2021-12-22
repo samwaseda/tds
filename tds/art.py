@@ -26,8 +26,7 @@ class ART(InteractiveWrapper):
     @property
     def non_diff_id(self):
         if self._non_diff_id is None:
-            arr = np.arange(len(self.structure))
-            self._non_diff_id = arr[arr != self.input.diff_id]
+            self._non_diff_id = np.delete(np.arange(len(self.structure)), self.input.diff_id)
         return self._non_diff_id
 
     def write_input(self):

@@ -1,74 +1,80 @@
 from pyiron_atomistics.atomistics.structure.atoms import Atoms
 import numpy as np
-
-
-def get_lattice_parameter(
-    project, temperature=0, coeff=np.array([2.84356485e-08, 4.37466530e-05, 3.51975215e+00])
-):
-    return np.polyval(coeff, temperature)
+from pyiron_atomistics import Project as PyironProject
 
 
 def get_potential():
     return '1995--Angelo-J-E--Ni-Al-H--LAMMPS--ipr1'
 
 
-def get_structure(project, n_repeat=1, h_positions=None):
-    structure = get_bulk(project).get_structure().repeat(n_repeat)
-    if h_positions is not None:
-        h_positions = np.atleast_2d(h_positions) * get_lattice_parameter(project)
-        structure += project.create.structure.atoms(
-            elements=len(h_positions) * ['H'],
-            positions=h_positions,
-            cell=structure.cell
-        )
-    return structure
+class Project(PyironProject):
+    def get_lattice_parameter(
+        self, temperature=0, coeff=np.array([2.84356485e-08, 4.37466530e-05, 3.51975215e+00])
+    ):
+        return np.polyval(coeff, temperature)
 
+    def get_structure(self, n_repeat=1, h_positions=None):
+        structure = self.get_bulk().get_structure().repeat(n_repeat)
+        if h_positions is not None:
+            h_positions = np.atleast_2d(h_positions) * self.get_lattice_parameter()
+            structure += self.create.structure.atoms(
+                elements=len(h_positions) * ['H'],
+                positions=h_positions,
+                cell=structure.cell
+            )
+        return structure
 
-def get_bulk(project):
-    lmp = project.create.job.Lammps('bulk')
-    if lmp.status.initialized:
-        lmp.structure = project.create.structure.bulk('Ni', cubic=True)
-        lmp.potential = get_potential()
-        lmp.calc_minimize(pressure=0)
-        lmp.run()
-    return lmp
-
-
-def get_energy(element, project, repeat=4):
-    lmp_Ni = get_bulk(project=project)
-    if element == 'Ni':
-        return lmp_Ni['output/generic/energy_pot'][-1] / len(lmp_Ni.structure)
-    elif element == 'H':
-        lmp = project.create.job.Lammps('bulk_H')
+    def get_bulk(self):
+        lmp = self.create.job.Lammps('bulk')
         if lmp.status.initialized:
+            lmp.structure = self.create.structure.bulk('Ni', cubic=True)
             lmp.potential = get_potential()
-            lmp.structure = lmp_Ni.get_structure().repeat(repeat)
-            a_0 = lmp_Ni.get_structure().cell[0, 0]
-            lmp.structure += project.create.structure.atoms(positions=[[0, 0, 0.5 * a_0]], elements=['H'])
-            lmp.calc_minimize()
+            lmp.calc_minimize(pressure=0)
             lmp.run()
-        return lmp.output.energy_pot[-1] - len(lmp.structure.select_index('Ni')) * get_energy('Ni', project=project)
-    else:
-        raise ValueError('element not recognized')
+        return lmp
+
+    def get_energy(self, element, repeat=4):
+        lmp_Ni = self.get_bulk()
+        if element == 'Ni':
+            return lmp_Ni['output/generic/energy_pot'][-1] / len(lmp_Ni.structure)
+        elif element == 'H':
+            lmp = self.create.job.Lammps('bulk_H')
+            if lmp.status.initialized:
+                lmp.potential = get_potential()
+                lmp.structure = lmp_Ni.get_structure().repeat(repeat)
+                a_0 = lmp_Ni.get_structure().cell[0, 0]
+                lmp.structure += self.create.structure.atoms(positions=[[0, 0, 0.5 * a_0]], elements=['H'])
+                lmp.calc_minimize()
+                lmp.run()
+            return lmp.output.energy_pot[-1] - len(lmp.structure.select_index('Ni')) * self.get_energy('Ni')
+        else:
+            raise ValueError('element not recognized')
+
+    def get_grain_boundary(self, axis=[1, 0, 0], sigma=5, plane=[0, 1, 3], temperature=0, repeat=1):
+        self._grain_boundary = GrainBoundary(
+            project=self,
+            axis=axis,
+            energy=self.get_energy('Ni'),
+            sigma=sigma,
+            plane=plane,
+            repeat=repeat,
+            bulk=self.get_bulk(temperature=temperature).get_structure()
+        )
+        return self._grain_boundary.grain_boundary
 
 
 class GrainBoundary:
-    def __init__(self, project, axis=[1, 0, 0], sigma=5, plane=[0, 1, 3], temperature=0, repeat=1):
-        self._energy_per_atom_Ni = None
+    def __init__(
+        self, project, bulk, energy, axis=[1, 0, 0], sigma=5, plane=[0, 1, 3], repeat=1
+    ):
+        self.energy = energy
         self._energy_lst = []
         self._structure_lst = []
         self.project = project
         self.axis = axis
         self.sigma = sigma
         self.plane = plane
-        self.temperature = temperature
         self.repeat = repeat
-
-    @property
-    def energy_per_atom_Ni(self):
-        if self._energy_per_atom_Ni is None:
-            self._energy_per_atom_Ni = get_energy('Ni', project=self.project)
-        return self._energy_per_atom_Ni
 
     @property
     def gb_energy(self):
@@ -83,25 +89,21 @@ class GrainBoundary:
         return self._structure_lst[self._energy_lst.argmin()]
 
     def run(self):
-        lmp_bulk = get_bulk(project=self.project)
         for i in range(2):
             for j in range(2):
                 gb = self.project.create.structure.aimsgb.build(
-                    self.axis, self.sigma, self.plane, lmp_bulk.structure, delete_layer='{0}b{1}t{0}b{1}t'.format(i, j),
+                    self.axis, self.sigma, self.plane, self.bulk, delete_layer='{0}b{1}t{0}b{1}t'.format(i, j),
                     uc_a=self.repeat, uc_b=self.repeat
                 )
-                job_name = 'lmp_{}_{}_{}_{}_{}_{}_{}'.format(self.repeat, self.axis, self.sigma, self.plane, self.temperature, i, j)
-                job_name = job_name.replace(',', 'c').replace('[', '').replace(']', '').replace(' ', '').replace('-', 'm')
-                lmp = self.project.create.job.Lammps(job_name)
+                lmp = self.project.create.job.Lammps(
+                    ('lmp', self.repeat, self.axis, self.sigma, self.plane, i, j)
+                )
                 if lmp.status.initialized:
                     lmp.structure = gb
                     lmp.potential = get_potential()
-                    if self.temperature > 0:
-                        lmp.calc_md(temperature=self.temperature, pressure=0, n_ionic_steps=10000)
-                    else:
-                        lmp.calc_minimize(pressure=0)
+                    lmp.calc_minimize(pressure=0)
                     lmp.run()
-                E = lmp.output.energy_pot[-1] - self.energy_per_atom_Ni * len(gb)
+                E = lmp.output.energy_pot[-1] - self.energy * len(gb)
                 cell = lmp.output.cells[-1].diagonal()
                 self._energy_lst.append(E / cell.prod() * np.max(cell) / 2)
                 self._structure_lst.append(lmp.get_structure())

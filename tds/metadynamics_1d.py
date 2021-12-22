@@ -10,7 +10,7 @@ class Metadynamics(InteractiveWrapper):
         self.output = DataContainer(table_name='output')
         self.input.n_print = 1000
         self.input.update_every_n_steps = 100
-        self.input.sigma = 0.1
+        self.input.sigma = 0.2
         self.input.spacing = 0.25
         self.input.increment = 0.0001
         self.input.symprec = 1.0e-2
