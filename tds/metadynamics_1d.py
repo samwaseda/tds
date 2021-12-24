@@ -14,7 +14,6 @@ class Metadynamics(InteractiveWrapper):
         self.input.spacing = 0.25
         self.input.increment = 0.0001
         self.input.symprec = 1.0e-2
-        self.input.unit_length = 0
         self.input.axis = None
         self._symmetry = None
         self._mesh = None
