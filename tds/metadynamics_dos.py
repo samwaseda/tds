@@ -9,9 +9,9 @@ class Metadynamics(InteractiveWrapper):
         self.input = DataContainer(table_name='input')
         self.output = DataContainer(table_name='output')
         self.input.update_every_n_steps = 100
-        self.input.sigma = 0.2
+        self.input.sigma = 0.001
         self.input.spacing = 0.25
-        self.input.increment = 0.0001
+        self.input.increment = 0.00001
         self.input.E_min = None
         self.input.E_max = None
         self._mesh = None
@@ -33,11 +33,13 @@ class Metadynamics(InteractiveWrapper):
         if self.input.E_min is None or self.input.E_max is None:
             raise ValueError('E_min and/or E_max not set')
 
+    @property
     def index_H(self):
         if self._index_H is None:
             self._index_H = self.ref_job.structure.select_index('H')[0]
         return self._index_H
 
+    @property
     def index_Ni(self):
         if self._index_Ni is None:
             self._index_Ni = self.ref_job.structure.select_index('Ni')
