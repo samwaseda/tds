@@ -9,7 +9,7 @@ class Metadynamics(InteractiveWrapper):
         self.input = DataContainer(table_name='input')
         self.output = DataContainer(table_name='output')
         self.input.update_every_n_steps = 100
-        self.input.sigma = 0.001
+        self.input.sigma = 0.0001
         self.input.spacing = 0.25
         self.input.increment = 0.001
         self.input.E_min = None
@@ -19,7 +19,7 @@ class Metadynamics(InteractiveWrapper):
         self._index_Ni = None
 
     @property
-    def sigma(self);
+    def sigma(self):
         return self.input.sigma * len(self.structure)
 
     @property
