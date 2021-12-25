@@ -11,7 +11,7 @@ class Metadynamics(InteractiveWrapper):
         self.input.update_every_n_steps = 100
         self.input.sigma = 0.001
         self.input.spacing = 0.25
-        self.input.increment = 0.00001
+        self.input.increment = 0.001
         self.input.E_min = None
         self.input.E_max = None
         self._mesh = None
@@ -19,8 +19,12 @@ class Metadynamics(InteractiveWrapper):
         self._index_Ni = None
 
     @property
+    def sigma(self);
+        return self.input.sigma * len(self.structure)
+
+    @property
     def spacing(self):
-        return self.input.sigma * self.input.spacing
+        return self.sigma * self.input.spacing
 
     @property
     def mesh(self):
@@ -50,6 +54,8 @@ class Metadynamics(InteractiveWrapper):
         self.output.dBds = np.zeros(len(self.mesh))
         self.status.running = True
         self.ref_job_initialize()
+        self.ref_job.input.control['thermo'] = '1'
+        self.ref_job._log_file = 'none'
         self.ref_job.set_fix_external(self.callback, overload_internal_fix_external=True)
         self.ref_job.run()
         self.status.collect = True
@@ -72,12 +78,12 @@ class Metadynamics(InteractiveWrapper):
         if index < 0 or index >= len(self.mesh):
             return 0
         f = self.ref_job.interactive_forces_getter()
-        return self.output.dBds[index] * f[self.index_H]
+        return self.output.dBds[index] * np.asarray(f[self.index_H])
 
     def update_s(self, E):
         dE = self.mesh[:, None] - E
-        exp = np.exp(-dE**2 / 2 / self.input.sigma**2)
-        self.output.dBds -= self.input.increment / self.input.sigma**2 * np.sum(dE * exp, axis=1)
+        exp = np.exp(-dE**2 / 2 / self.sigma**2)
+        self.output.dBds -= self.input.increment / self.sigma**2 * np.sum(dE * exp, axis=1)
         self.output.B += self.input.increment * np.sum(exp, axis=1)
 
     def to_hdf(self, hdf=None, group_name=None):
