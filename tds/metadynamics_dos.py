@@ -10,7 +10,7 @@ class Metadynamics(InteractiveWrapper):
         self.output = DataContainer(table_name='output')
         self.input.update_every_n_steps = 100
         self.input.sigma = 0.0001
-        self.input.spacing = 0.25
+        self.input.spacing = 0.2
         self.input.increment = 0.001
         self.input.E_min = None
         self.input.E_max = None
@@ -64,7 +64,7 @@ class Metadynamics(InteractiveWrapper):
         self.to_hdf()
 
     def callback(self, caller, ntimestep, nlocal, tag, x, fext):
-        E = self.ref_job.interactive_energy_pot_getter()
+        E = self.ref_job.interactive_energy_tot_getter()
         tags = tag.flatten().argsort()
         fext.fill(0)
         f = self.get_force(E)
@@ -73,11 +73,20 @@ class Metadynamics(InteractiveWrapper):
         if ((ntimestep + 1) % self.input.update_every_n_steps) == 0:
             self.update_s(E)
 
+    def interactive_velocities_getter(self):
+        return np.reshape(
+            np.array(self.ref_job._interactive_library.gather_atoms("v", 1, 3)),
+            (len(self.structure), 3),
+        )
+
     def get_force(self, E):
         index = int((E - self.input.E_min) / self.spacing)
-        if index < 0 or index >= len(self.mesh):
-            return 0
         f = self.ref_job.interactive_forces_getter()
+        if index >= len(self.mesh):
+            v = np.asarray(self.interactive_velocities_getter())[self.index_H]
+            return -np.linalg.norm(f[self.index_H]) / np.linalg.norm(v) * v
+        elif index < 0:
+            return np.random.randn(3)
         return self.output.dBds[index] * np.asarray(f[self.index_H])
 
     def update_s(self, E):

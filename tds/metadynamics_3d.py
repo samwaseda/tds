@@ -6,7 +6,7 @@ from tds.gaussian_process import GaussianProcess
 
 
 class UnitCell:
-    def __init__(self, unit_cell, sigma, increment, spacing=None, cutoff=None, symprec=1.0e-2):
+    def __init__(self, unit_cell, sigma, increment, spacing=None, cutoff=None, symprec=1.0e-2, decay=1):
         self.unit_cell = unit_cell
         self.sigma = sigma
         self.increment = increment
@@ -27,6 +27,7 @@ class UnitCell:
         self._symmetry = None
         self._symprec = 1.0e-2
         self._gaussian_process = None
+        self._decay = decay
 
     def x_to_s(self, x):
         return self.unit_cell.get_wrapped_coordinates(x)

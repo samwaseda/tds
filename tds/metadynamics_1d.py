@@ -15,8 +15,10 @@ class Metadynamics(InteractiveWrapper):
         self.input.increment = 0.0001
         self.input.symprec = 1.0e-2
         self.input.axis = None
+        self.input.decay = 1.0
         self._symmetry = None
         self._mesh = None
+        self._current_increment = None
 
     @property
     def spacing(self):
@@ -59,6 +61,7 @@ class Metadynamics(InteractiveWrapper):
         ]
 
     def run_static(self):
+        self._current_increment = self.input.increment
         self.output.B = np.zeros(len(self.mesh))
         self.output.dBds = np.zeros(len(self.mesh))
         self.status.running = True
@@ -94,8 +97,9 @@ class Metadynamics(InteractiveWrapper):
         x = self._get_symmetric_x(x)
         dx = self.mesh[:, None] - x
         exp = np.exp(-dx**2 / 2 / self.input.sigma**2)
-        self.output.dBds -= self.input.increment / self.input.sigma**2 * np.sum(dx * exp, axis=1)
-        self.output.B += self.input.increment * np.sum(exp, axis=1)
+        self.output.dBds -= self._current_increment / self.input.sigma**2 * np.sum(dx * exp, axis=1)
+        self.output.B += self._current_increment * np.sum(exp, axis=1)
+        self._current_increment *= self.input.decay
 
     def to_hdf(self, hdf=None, group_name=None):
         super().to_hdf(
