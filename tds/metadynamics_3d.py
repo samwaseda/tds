@@ -2,7 +2,6 @@ from scipy.spatial import cKDTree
 import numpy as np
 from pyiron_base.generic.datacontainer import DataContainer
 from pyiron_atomistics.atomistics.job.interactivewrapper import InteractiveWrapper
-from tds.gaussian_process import GaussianProcess
 
 
 class UnitCell:
@@ -29,13 +28,12 @@ class UnitCell:
         self._x_lst = []
         self._cell_inv = None
         self.dBds = np.zeros_like(self.mesh)
-        self.B = np.zeros_like(self.dBds.shape[:-1])
+        self.B = np.zeros(self.dBds.shape[:-1])
         self._symmetry = None
         self._symprec = symprec
         self._gaussian_process = None
         self._sigma_decay = sigma_decay
         self._increment_decay = increment_decay
-        self._cutoff = cutoff
 
     @property
     def sigma(self):
@@ -126,36 +124,8 @@ class UnitCell:
         rho = len(self.x_lst) / self.unit_cell.get_volume()
         return np.max([int(1.5 * 4 / 3 * np.pi * self.cutoff**3 * rho), 20])
 
-    @property
-    def gaussian_process(self):
-        if self._gaussian_process is None:
-            self._gaussian_process = GaussianProcess(self._get_energy, max_error=1.0e-2)
-        return self._gaussian_process
-
     def get_energy(self, x, reset_gp=False):
-        if reset_gp:
-            self.gaussian_process = None
-        s_in = self.x_to_s(x)
-        s = np.asarray(s_in).reshape(-1, np.shape(s_in)[-1])
-        while True:
-            ss = self.gaussian_process.get_arg_max_error(s)
-            if ss is None:
-                break
-            self.gaussian_process.append(ss)
-            self.gaussian_process.replicate(self._get_symmetric_x(ss, cutoff=self.cutoff/4))
-        return self.gaussian_process.predict(s).reshape(s_in.shape[:-1])
-
-    def _get_energy(self, x):
-        dist, indices = self.tree_output.query(
-            x, k=self._num_neighbors_x_lst, distance_upper_bound=self.cutoff
-        )
-        return -self.increment * np.exp(-dist**2 / (2 * self.sigma**2)).sum(axis=-1)
-
-    def get_gradient(self, x):
-        return -self.gaussian_process.get_gradient(x)
-
-    def get_hessian(self, x):
-        return -self.gaussian_process.get_hessian(x)
+        return -self.B[self._get_index(x)]
 
 
 class Metadynamics(InteractiveWrapper):
@@ -164,11 +134,11 @@ class Metadynamics(InteractiveWrapper):
         self.input = DataContainer(table_name='input')
         self.output = DataContainer(table_name='output')
         self.input.update_every_n_steps = 100
-        self.input.increment = 0.1
-        self.input.sigma = 1
-        self.input.cutoff = None
-        self.input.sigma_decay = 0.99
-        self.input.increment_decay = 0.9
+        self.input.increment = 0.001
+        self.input.sigma = 0.5
+        self.input.cutoff = 4
+        self.input.sigma_decay = 0.999
+        self.input.increment_decay = 0.99
         self.input.spacing = 0.05
         self.input.symprec = 1.0e-2
         self.input.unit_length = 0
@@ -199,7 +169,9 @@ class Metadynamics(InteractiveWrapper):
                 increment=self.input.increment,
                 spacing=self.input.spacing,
                 cutoff=self.input.cutoff,
-                symprec=self.input.symprec
+                symprec=self.input.symprec,
+                sigma_decay=self.input.sigma_decay,
+                increment_decay=self.input.increment_decay
             )
         return self._unit_cell
 
@@ -217,7 +189,9 @@ class Metadynamics(InteractiveWrapper):
         self.ref_job.run()
         self.status.collect = True
         self.ref_job.interactive_close()
-        self.output.x_lst = self.unit_cell.x_lst
+        self.output.x = self.unit_cell.x_lst
+        self.output.energy = self.unit_cell.B
+        self.output.energy = self.unit_cell.dBds
         self.status.finished = True
         self.to_hdf()
 
@@ -271,8 +245,8 @@ class Metadynamics(InteractiveWrapper):
             group_name=group_name
         )
         self.output.from_hdf(hdf=self.project_hdf5, group_name='output')
-        if len(self.output.x_lst) > 0:
-            self.unit_cell._x_lst.extend(self.output.x_lst)
+        if len(self.output.x) > 0:
+            self.unit_cell._x_lst.extend(self.output.x)
 
     def write_input(self):
         pass
@@ -280,20 +254,25 @@ class Metadynamics(InteractiveWrapper):
     def get_energy(self, x):
         return self.unit_cell.get_energy(x)
 
-    def get_gradient(self, x):
-        return self.unit_cell.get_gradient(x)
-
-    def get_hessian(self, x):
-        return self.unit_cell.get_hessian(x)
-
     @property
-    def filling_rate(self):
+    def _filling_coeff(self):
         dEV = (np.sqrt(np.pi) * self.input.sigma)**3 * self.input.increment
         V_tot = self.primitive_cell.get_volume()
         N_sym = len(self.unit_cell.symmetry.rotations)
-        N_freq = self.input.update_every_n_steps
-        return dEV / V_tot * N_sym / N_freq
+        return dEV / V_tot * N_sym
+
+    def get_filling_rate(self, n, diff=False):
+        decay = self.input.sigma_decay**3 * self.input.increment_decay
+        nn = np.array(n) / self.input.update_every_n_steps
+        if diff:
+            return self._filling_coeff * decay**nn
+        return self._filling_coeff * (1 - decay**(nn + 1)) / (1 - decay)
+
+    @property
+    def total_filling(self):
+        decay = self.input.sigma_decay**3 * self.input.increment_decay
+        return self._filling_coeff / (1 - decay)
 
     @property
     def max_force(self):
-        return self.input.w / self.input.sigma / np.exp(0.5)
+        return self.input.increment / self.input.sigma / np.exp(0.5)
