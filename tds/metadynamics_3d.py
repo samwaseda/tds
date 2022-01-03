@@ -6,28 +6,52 @@ from tds.gaussian_process import GaussianProcess
 
 
 class UnitCell:
-    def __init__(self, unit_cell, sigma, increment, spacing=None, cutoff=None, symprec=1.0e-2, decay=1):
+    def __init__(
+        self,
+        unit_cell,
+        sigma,
+        increment,
+        spacing=0.05,
+        cutoff=4,
+        symprec=1.0e-2,
+        sigma_decay=1,
+        increment_decay=1
+    ):
         self.unit_cell = unit_cell
-        self.sigma = sigma
-        self.increment = increment
+        self._sigma = sigma
+        self._increment = increment
         self.spacing = spacing
-        if self.spacing is None:
-            self.spacing = self.sigma / 4
         self._mesh = None
         self._tree_mesh = None
         self._symmetry = None
         self._x_repeat = None
-        self.cutoff = cutoff
+        self._cutoff = cutoff
         self._x_lst = []
         self._cell_inv = None
-        if self.cutoff is None:
-            self.cutoff = 4 * sigma
-        self.num_neighbors = int(1.5 * 4 / 3 * np.pi * self.cutoff**3 / self.spacing**3)
         self.dBds = np.zeros_like(self.mesh)
+        self.B = np.zeros_like(self.dBds.shape[:-1])
         self._symmetry = None
-        self._symprec = 1.0e-2
+        self._symprec = symprec
         self._gaussian_process = None
-        self._decay = decay
+        self._sigma_decay = sigma_decay
+        self._increment_decay = increment_decay
+        self._cutoff = cutoff
+
+    @property
+    def sigma(self):
+        return self._sigma * self._sigma_decay ** len(self._x_lst)
+
+    @property
+    def increment(self):
+        return self._increment * self._increment_decay ** len(self._x_lst)
+
+    @property
+    def cutoff(self):
+        return self._cutoff * self.sigma
+
+    @property
+    def num_neighbors(self):
+        return int(1.5 * 4 / 3 * np.pi * self.cutoff**3 / self.spacing**3)
 
     def x_to_s(self, x):
         return self.unit_cell.get_wrapped_coordinates(x)
@@ -76,16 +100,12 @@ class UnitCell:
 
     def append_positions(self, x, symmetrize=True):
         if symmetrize:
-            x = self._get_symmetric_x(x)
+            x_sym = self._get_symmetric_x(x)
+        dist, dx, unraveled_indices = self._get_neighbors(x_sym)
+        B = self.increment * np.exp(-dist**2 / (2 * self.sigma**2))
+        np.add.at(self.dBds, unraveled_indices, dx * B[:, np.newaxis] / self.sigma**2)
+        np.add.at(self.B, unraveled_indices, B)
         self._x_lst.extend(x)
-        dist, dx, unraveled_indices = self._get_neighbors(x)
-        np.add.at(
-            self.dBds,
-            unraveled_indices,
-            self.increment / self.sigma**2 * dx * np.exp(
-                -dist**2 / (2 * self.sigma**2)
-            )[:, np.newaxis]
-        )
 
     def _get_index(self, x):
         return np.unravel_index(self.tree_mesh.query(self.x_to_s(x))[1], self.mesh.shape[:-1])
@@ -144,34 +164,21 @@ class Metadynamics(InteractiveWrapper):
         self.input = DataContainer(table_name='input')
         self.output = DataContainer(table_name='output')
         self.input.update_every_n_steps = 100
-        self.input.increment = 0.0001
-        self.input.sigma = 0.38105
+        self.input.increment = 0.1
+        self.input.sigma = 1
         self.input.cutoff = None
-        self.input.spacing = None
+        self.input.sigma_decay = 0.99
+        self.input.increment_decay = 0.9
+        self.input.spacing = 0.05
         self.input.symprec = 1.0e-2
-        self.input.e_prefactor = 3.0227679
-        self.input.e_decay = 1.30318
-        self.input.num_neighbors = 20
         self.input.unit_length = 0
         self.input.track_vacancy = False
         self._unit_cell = None
-        self.input.x_lst = []
         self.output.x_lst = []
         self._tree = None
         self._mass_ratios = None
         self.total_displacements = None
         self.x_previous = None
-
-    def prefill_histo(self):
-        if not np.isclose(self.input.e_prefactor, 0):
-            neigh = self.unit_cell.unit_cell.get_neighborhood(
-                self.unit_cell.mesh, num_neighbors=self.input.num_neighbors
-            )
-            self.unit_cell.dBds = 2 * self.input.e_prefactor * self.input.e_decay * np.einsum(
-                '...ni,...n->...i',
-                neigh.vecs,
-                np.exp(-self.input.e_decay * neigh.distances**2)
-            )
 
     @property
     def structure_unary(self):
@@ -194,9 +201,6 @@ class Metadynamics(InteractiveWrapper):
                 cutoff=self.input.cutoff,
                 symprec=self.input.symprec
             )
-            self.prefill_histo()
-            if len(self.input.x_lst) > 0:
-                self.unit_cell.append_positions(self.input.x_lst, symmetrize=False)
         return self._unit_cell
 
     @property
@@ -273,39 +277,14 @@ class Metadynamics(InteractiveWrapper):
     def write_input(self):
         pass
 
-    def _get_prefill_energy(self, x):
-        d = self.unit_cell.unit_cell.get_neighborhood(
-            x, num_neighbors=self.input.num_neighbors
-        ).distances
-        return self.input.e_prefactor * np.exp(-self.input.e_decay * d**2).sum(axis=-1)
-
-    def _get_prefill_gradient(self, x):
-        neigh = self.unit_cell.unit_cell.get_neighborhood(
-            x, num_neighbors=self.input.num_neighbors
-        )
-        return 2 * self.input.e_decay * self.input.e_prefactor * np.einsum(
-            '...ij,...i->...j', neigh.vecs, np.exp(-self.input.e_decay * neigh.distances**2)
-        )
-
-    def _get_prefill_hessian(self, x):
-        neigh = self.unit_cell.unit_cell.get_neighborhood(
-            x, num_neighbors=self.input.num_neighbors
-        )
-        H = 4 * self.input.e_decay**2 * np.einsum(
-            '...i,...j->...ij', neigh.vecs, neigh.vecs
-        ) + 2 * self.input.e_decay**2
-        return self.input.e_prefactor * np.einsum(
-            '...ijk,...i->...jk', H, np.exp(-self.input.e_decay * neigh.distances**2)
-        )
-
     def get_energy(self, x):
-        return self.unit_cell.get_energy(x) + self._get_prefill_energy(x)
+        return self.unit_cell.get_energy(x)
 
     def get_gradient(self, x):
-        return self.unit_cell.get_gradient(x) + self._get_prefill_gradient(x)
+        return self.unit_cell.get_gradient(x)
 
     def get_hessian(self, x):
-        return self.unit_cell.get_hessian(x) + self._get_prefill_hessian(x)
+        return self.unit_cell.get_hessian(x)
 
     @property
     def filling_rate(self):
@@ -314,3 +293,7 @@ class Metadynamics(InteractiveWrapper):
         N_sym = len(self.unit_cell.symmetry.rotations)
         N_freq = self.input.update_every_n_steps
         return dEV / V_tot * N_sym / N_freq
+
+    @property
+    def max_force(self):
+        return self.input.w / self.input.sigma / np.exp(0.5)
