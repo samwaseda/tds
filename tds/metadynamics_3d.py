@@ -144,7 +144,7 @@ class Metadynamics(InteractiveWrapper):
         self.input.unit_length = 0
         self.input.track_vacancy = False
         self._unit_cell = None
-        self.output.x_lst = []
+        self.output.x = []
         self._tree = None
         self._mass_ratios = None
         self.total_displacements = None
