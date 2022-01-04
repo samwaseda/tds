@@ -16,6 +16,7 @@ class Metadynamics(InteractiveWrapper):
         self.input.symprec = 1.0e-2
         self.input.axis = None
         self.input.decay = 1.0
+        self.input.use_gradient = True
         self._symmetry = None
         self._mesh = None
         self._current_increment = None
@@ -32,6 +33,7 @@ class Metadynamics(InteractiveWrapper):
     def mesh(self):
         if self._mesh is None:
             self._mesh = np.arange(0, self.length, self.spacing)
+            self._mesh += 0.5 * self.spacing
         return self._mesh
 
     @property
@@ -64,6 +66,7 @@ class Metadynamics(InteractiveWrapper):
         self._current_increment = self.input.increment
         self.output.B = np.zeros(len(self.mesh))
         self.output.dBds = np.zeros(len(self.mesh))
+        self.output.ddBdds = np.zeros(len(self.mesh))
         self.status.running = True
         self.ref_job_initialize()
         self.ref_job.set_fix_external(self.callback, overload_internal_fix_external=True)
@@ -83,8 +86,13 @@ class Metadynamics(InteractiveWrapper):
             self.update_s(x[tags[-1], self.input.axis])
 
     def get_force(self, x):
-        index = int(x / self.spacing) % len(self.mesh)
-        return -self.output.dBds[index]
+        index = np.rint(x / self.spacing).astype(int) % len(self.mesh)
+        dBds = self.output.dBds[index]
+        if self.input.use_gradient:
+            dx = self.mesh[index] - x
+            dx -= self.length * np.rint(dx / self.length)
+            dBds += dx * self.output.ddBdds[index]
+        return -dBds
 
     def _get_symmetric_x(self, x):
         x_scaled = x / self.structure.cell[self.input.axis, self.input.axis]
@@ -95,10 +103,14 @@ class Metadynamics(InteractiveWrapper):
 
     def update_s(self, x):
         x = self._get_symmetric_x(x)
-        dx = self.mesh[:, None] - x
-        exp = np.exp(-dx**2 / 2 / self.input.sigma**2)
-        self.output.dBds -= self._current_increment / self.input.sigma**2 * np.sum(dx * exp, axis=1)
+        dx = (self.mesh[:, None] - x) / self.input.sigma
+        exp = np.exp(-dx**2 / 2)
+        self.output.dBds -= self._current_increment / self.input.sigma * np.sum(dx * exp, axis=1)
         self.output.B += self._current_increment * np.sum(exp, axis=1)
+        if self.input.use_gradient:
+            self.output.ddBdds += self._current_increment / self.input.sigma**2 * (
+                dx**2 - 1
+            ) * np.sum(exp, axis=1)
         self._current_increment *= self.input.decay
 
     def to_hdf(self, hdf=None, group_name=None):

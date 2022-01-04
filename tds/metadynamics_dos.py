@@ -14,6 +14,7 @@ class Metadynamics(InteractiveWrapper):
         self.input.increment = 0.001
         self.input.E_min = None
         self.input.E_max = None
+        self.input.use_derivative = True
         self._mesh = None
         self._index_H = None
         self._index_Ni = None
@@ -30,6 +31,7 @@ class Metadynamics(InteractiveWrapper):
     def mesh(self):
         if self._mesh is None:
             self._mesh = np.arange(self.input.E_min, self.input.E_max, self.spacing)
+            self._mesh += 0.5 * self.spacing
         return self._mesh
 
     def validate_ready_to_run(self):
@@ -52,6 +54,7 @@ class Metadynamics(InteractiveWrapper):
     def run_static(self):
         self.output.B = np.zeros(len(self.mesh))
         self.output.dBds = np.zeros(len(self.mesh))
+        self.output.ddBdds = np.zeros(len(self.mesh))
         self.status.running = True
         self.ref_job_initialize()
         self.ref_job.input.control['thermo'] = '1'
@@ -80,20 +83,27 @@ class Metadynamics(InteractiveWrapper):
         )
 
     def get_force(self, E):
-        index = int((E - self.input.E_min) / self.spacing)
+        index = np.rint((E - self.input.E_min) / self.spacing).astype(int)
         f = self.ref_job.interactive_forces_getter()
         if index >= len(self.mesh):
             v = np.asarray(self.interactive_velocities_getter())[self.index_H]
             return -np.linalg.norm(f[self.index_H]) / np.linalg.norm(v) * v
         elif index < 0:
             return np.random.randn(3)
-        return self.output.dBds[index] * np.asarray(f[self.index_H])
+        dBds = self.output.dBds[index]
+        if self.input.use_derivative:
+            dBds += self.output.ddBdds[index] * (E - self.mesh[index])
+        return  dBds * np.asarray(f[self.index_H])
 
     def update_s(self, E):
-        dE = self.mesh[:, None] - E
-        exp = np.exp(-dE**2 / 2 / self.sigma**2)
-        self.output.dBds -= self.input.increment / self.sigma**2 * np.sum(dE * exp, axis=1)
+        dE_rel = (self.mesh[:, None] - E) / self.sigma
+        exp = np.exp(-dE_rel**2 / 2)
+        self.output.dBds -= self.input.increment / self.sigma * np.sum(dE_rel * exp, axis=1)
         self.output.B += self.input.increment * np.sum(exp, axis=1)
+        if self.input.use_derivative:
+            self.output.ddBdds += self.input.increment / self.sigma**2 * np.sum(
+                (dE_rel**2 - 1) * exp, axis=1
+            )
 
     def to_hdf(self, hdf=None, group_name=None):
         super().to_hdf(
