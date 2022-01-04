@@ -103,14 +103,16 @@ class Metadynamics(InteractiveWrapper):
 
     def update_s(self, x):
         x = self._get_symmetric_x(x)
-        dx = (self.mesh[:, None] - x) / self.input.sigma
+        dx = self.mesh[:, None] - x
+        dx -= self.length * np.rint(dx / self.length)
+        dx /= self.input.sigma
         exp = np.exp(-dx**2 / 2)
         self.output.dBds -= self._current_increment / self.input.sigma * np.sum(dx * exp, axis=1)
         self.output.B += self._current_increment * np.sum(exp, axis=1)
         if self.input.use_gradient:
-            self.output.ddBdds += self._current_increment / self.input.sigma**2 * (
-                dx**2 - 1
-            ) * np.sum(exp, axis=1)
+            self.output.ddBdds += self._current_increment / self.input.sigma**2 * np.sum(
+                (dx**2 - 1) * exp, axis=1
+            )
         self._current_increment *= self.input.decay
 
     def to_hdf(self, hdf=None, group_name=None):
