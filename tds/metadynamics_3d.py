@@ -190,8 +190,8 @@ class Metadynamics(InteractiveWrapper):
         self.status.collect = True
         self.ref_job.interactive_close()
         self.output.x = self.unit_cell.x_lst
-        self.output.energy = self.unit_cell.B
-        self.output.energy = self.unit_cell.dBds
+        self.output.B = self.unit_cell.B
+        self.output.dBds = self.unit_cell.dBds
         self.status.finished = True
         self.to_hdf()
 

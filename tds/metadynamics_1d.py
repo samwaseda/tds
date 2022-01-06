@@ -8,7 +8,6 @@ class Metadynamics(InteractiveWrapper):
         super().__init__(project, job_name)
         self.input = DataContainer(table_name='input')
         self.output = DataContainer(table_name='output')
-        self.input.n_print = 1000
         self.input.update_every_n_steps = 100
         self.input.sigma = 0.2
         self.input.spacing = 0.25
@@ -89,7 +88,7 @@ class Metadynamics(InteractiveWrapper):
         index = np.rint(x / self.spacing).astype(int) % len(self.mesh)
         dBds = self.output.dBds[index]
         if self.input.use_gradient:
-            dx = self.mesh[index] - x
+            dx = x - self.mesh[index]
             dx -= self.length * np.rint(dx / self.length)
             dBds += dx * self.output.ddBdds[index]
         return -dBds
