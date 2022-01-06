@@ -39,18 +39,6 @@ class Metadynamics(InteractiveWrapper):
         if self.input.E_min is None or self.input.E_max is None:
             raise ValueError('E_min and/or E_max not set')
 
-    @property
-    def index_H(self):
-        if self._index_H is None:
-            self._index_H = self.ref_job.structure.select_index('H')[0]
-        return self._index_H
-
-    @property
-    def index_Ni(self):
-        if self._index_Ni is None:
-            self._index_Ni = self.ref_job.structure.select_index('Ni')
-        return self._index_Ni
-
     def run_static(self):
         self.output.B = np.zeros(len(self.mesh))
         self.output.dBds = np.zeros(len(self.mesh))
@@ -71,8 +59,7 @@ class Metadynamics(InteractiveWrapper):
         tags = tag.flatten().argsort()
         fext.fill(0)
         f = self.get_force(E)
-        fext[tags[self.index_H]] += f
-        fext[tags[self.index_Ni]] -= f / (len(tag) - 1)
+        fext[tags] += f - np.mean(f, axis=0)
         if ((ntimestep + 1) % self.input.update_every_n_steps) == 0:
             self.update_s(E)
 
@@ -86,14 +73,14 @@ class Metadynamics(InteractiveWrapper):
         index = np.rint((E - self.input.E_min) / self.spacing).astype(int)
         f = self.ref_job.interactive_forces_getter()
         if index >= len(self.mesh):
-            v = np.asarray(self.interactive_velocities_getter())[self.index_H]
-            return -np.linalg.norm(f[self.index_H]) / np.linalg.norm(v) * v
+            v = np.asarray(self.interactive_velocities_getter())
+            return -np.einsum('i,i,ij->ij', np.linalg.norm(f), 1 / np.linalg.norm(v), v)
         elif index < 0:
-            return np.random.randn(3)
+            return np.random.randn(*self.structure.positions.shape)
         dBds = self.output.dBds[index]
         if self.input.use_derivative:
             dBds += self.output.ddBdds[index] * (E - self.mesh[index])
-        return  dBds * np.asarray(f[self.index_H])
+        return  dBds * np.asarray(f)
 
     def update_s(self, E):
         dE_rel = (self.mesh[:, None] - E) / self.sigma
