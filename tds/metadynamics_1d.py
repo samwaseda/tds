@@ -12,7 +12,7 @@ class Metadynamics(InteractiveWrapper):
         self.input.sigma = 0.2
         self.input.spacing = 0.25
         self.input.increment = 0.0001
-        self.input.symprec = 1.0e-2
+        self.input.symprec = 1.0e-1
         self.input.axis = None
         self.input.decay = 1.0
         self.input.use_gradient = True
@@ -61,11 +61,14 @@ class Metadynamics(InteractiveWrapper):
             self.structure.select_index(self.structure.get_majority_species()['symbol'])
         ]
 
-    def run_static(self):
+    def _initialize_potentials(self):
         self._current_increment = self.input.increment
         self.output.B = np.zeros(len(self.mesh))
         self.output.dBds = np.zeros(len(self.mesh))
         self.output.ddBdds = np.zeros(len(self.mesh))
+
+    def run_static(self):
+        self._initialize_potentials()
         self.status.running = True
         self.ref_job_initialize()
         self.ref_job.set_fix_external(self.callback, overload_internal_fix_external=True)
