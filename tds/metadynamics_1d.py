@@ -39,7 +39,7 @@ class Metadynamics(InteractiveWrapper):
     def symmetry(self):
         if self._symmetry is None:
             x_random = np.random.random(3)
-            sym = self.structure_unary.get_symmetry()
+            sym = self.structure_unary.get_symmetry(symprec=self.input.symprec)
             x_sym = self.structure_unary.get_wrapped_coordinates(
                 np.einsum('nij,j->ni', sym.rotations, x_random) + sym.translations
             )
