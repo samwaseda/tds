@@ -98,8 +98,8 @@ class UnitCell:
 
     def append_positions(self, x, symmetrize=True):
         if symmetrize:
-            x_sym = self._get_symmetric_x(x)
-        dist, dx, unraveled_indices = self._get_neighbors(x_sym)
+            x = self._get_symmetric_x(x)
+        dist, dx, unraveled_indices = self._get_neighbors(x)
         B = self.increment * np.exp(-dist**2 / (2 * self.sigma**2))
         np.add.at(self.dBds, unraveled_indices, dx * B[:, np.newaxis] / self.sigma**2)
         np.add.at(self.B, unraveled_indices, B)

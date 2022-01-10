@@ -3,7 +3,7 @@
 import numpy as np
 import unittest
 from pyiron_atomistics.atomistics.structure.factories.ase import AseFactory
-from tds.metadynamics import UnitCell
+from tds.metadynamics_3d import UnitCell
 
 
 class TestUnitCell(unittest.TestCase):
