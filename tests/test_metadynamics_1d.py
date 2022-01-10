@@ -36,6 +36,14 @@ class TestUnitCell(unittest.TestCase):
             0.999
         )
 
+    def test_B(self):
+        x = np.random.random() * self.lammps.structure.cell[tuple(2 * [self.meta.input.axis])]
+        dx = x * 0.1
+        x *= 0.9
+        self.meta.update_s(x)
+        self.assertGreater(self.meta.get_force(x + dx), 0)
+        self.assertLess(self.meta.get_force(x - dx), 0)
+
 
 if __name__ == "__main__":
     unittest.main()
