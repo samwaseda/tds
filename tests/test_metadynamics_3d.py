@@ -1,9 +1,9 @@
 # coding: utf-8
-
 import numpy as np
 import unittest
 from pyiron_atomistics.atomistics.structure.factories.ase import AseFactory
 from tds.metadynamics_3d import UnitCell
+from scipy.stats import pearsonr
 
 
 class TestUnitCell(unittest.TestCase):
@@ -59,7 +59,9 @@ class TestUnitCell(unittest.TestCase):
         self.assertTrue(np.allclose(dx, (self.unit_cell.mesh - x)[indices]))
 
     def test_get_energy(self):
-        x = np.random.random(3)
+        x = self.unit_cell.mesh[
+            tuple(np.random.randint(self.unit_cell.mesh.shape[:-1]))
+        ]
         self.unit_cell.append_positions(x)
         self.assertLessEqual(self.unit_cell.get_energy(x), -self.unit_cell.increment)
         x = self.unit_cell.x_to_s(x)
@@ -73,6 +75,8 @@ class TestUnitCell(unittest.TestCase):
         )
 
     def test_B(self):
+        def get_diff(var, axis):
+            return (np.roll(var, 1, axis=axis) - np.roll(var, -1, axis=axis)).flatten()
         x = self.unit_cell.mesh[
             tuple(np.random.randint(self.unit_cell.mesh.shape[:-1]))
         ]
@@ -80,6 +84,19 @@ class TestUnitCell(unittest.TestCase):
         ind = self.unit_cell._get_index(x)
         self.assertGreater(self.unit_cell.B[ind], self.unit_cell.increment)
         self.assertLess(np.linalg.eigh(self.unit_cell.ddBdds[ind])[0].max(), 0.)
+        for i in range(3):
+            dx = get_diff(self.unit_cell.mesh, i).reshape(-1, 3)
+            indices = np.unique(
+                np.round(np.linalg.norm(dx, axis=-1), decimals=8), return_inverse=True
+            )[1]
+            d_num = get_diff(self.unit_cell.B, i)[indices == 0]
+            d_ana = np.sum(dx * self.unit_cell.dBds.reshape(-1, 3), axis=-1)[indices == 0]
+            self.assertGreater(np.absolute(pearsonr(d_ana, d_num)[0]), 0.99)
+            d_num = get_diff(self.unit_cell.dBds, i).reshape(-1, 3)[indices == 0].flatten()
+            d_ana = np.einsum('...j,...ij->...i', dx, self.unit_cell.ddBdds.reshape(-1, 3, 3))
+            self.assertGreater(
+                np.absolute(pearsonr(d_ana[indices == 0].flatten(), d_num)[0]), 0.99
+            )
 
     def test_get_force(self):
         x = np.random.random((1, 3))
