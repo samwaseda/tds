@@ -19,6 +19,8 @@ class Metadynamics(InteractiveWrapper):
         self._symmetry = None
         self._mesh = None
         self._current_increment = None
+        self._ind_meta = None
+        self._ind_nonmeta = None
 
     @property
     def spacing(self):
@@ -43,7 +45,9 @@ class Metadynamics(InteractiveWrapper):
             x_sym = self.structure_unary.get_wrapped_coordinates(
                 np.einsum('nij,j->ni', sym.rotations, x_random) + sym.translations
             )
-            sym_indices = np.unique(x_sym[:, self.input.axis], return_index=True)[1]
+            sym_indices = np.unique(
+                np.round(x_sym[:, self.input.axis], decimals=8), return_index=True
+            )[1]
             self._symmetry = {
                 'rotations': sym.rotations[sym_indices, self.input.axis, self.input.axis],
                 'translations': sym.translations[sym_indices, self.input.axis]
@@ -78,14 +82,26 @@ class Metadynamics(InteractiveWrapper):
         self.status.finished = True
         self.to_hdf()
 
+    @property
+    def ind_nonmeta(self):
+        if self._ind_nonmeta is None:
+            self._ind_nonmeta = self.structure.select_index('Ni')
+        return self._ind_nonmeta
+
+    @property
+    def ind_meta(self):
+        if self._ind_meta is None:
+            self._ind_meta = self.structure.select_index('H')
+        return self._ind_meta
+
     def callback(self, caller, ntimestep, nlocal, tag, x, fext):
         tags = tag.flatten().argsort()
         fext.fill(0)
-        f = self.get_force(x[tags[-1], self.input.axis])
-        fext[tags[-1], self.input.axis] += f
-        fext[tags[:-1], self.input.axis] -= f / (len(tag) - 1)
+        f = self.get_force(x[tags[self.ind_meta], self.input.axis])
+        fext[tags[self.ind_meta], self.input.axis] += f
+        fext[tags[self.ind_nonmeta], self.input.axis] -= f.mean(axis=0) / len(self.ind_nonmeta)
         if ((ntimestep + 1) % self.input.update_every_n_steps) == 0:
-            self.update_s(x[tags[-1], self.input.axis])
+            self.update_s(x[tags[self.ind_meta], self.input.axis])
 
     def get_force(self, x):
         index = np.rint(x / self.spacing).astype(int) % len(self.mesh)
@@ -98,9 +114,11 @@ class Metadynamics(InteractiveWrapper):
 
     def _get_symmetric_x(self, x):
         x_scaled = x / self.structure.cell[self.input.axis, self.input.axis]
-        x_new = self.symmetry['rotations'] * x_scaled + self.symmetry['translations']
+        x_new = np.einsum(
+            '...,j->...j', x_scaled, self.symmetry['rotations']
+        ) + self.symmetry['translations']
         x_new -= np.floor(x_new)
-        x_repeated = (x_new[:, None] + np.array([-1, 0, 1])).flatten()
+        x_repeated = (x_new.reshape(-1, 1) + np.array([-1, 0, 1])).flatten()
         return self.structure.cell[self.input.axis, self.input.axis] * x_repeated
 
     def update_s(self, x):
