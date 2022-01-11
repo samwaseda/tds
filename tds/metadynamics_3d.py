@@ -279,7 +279,7 @@ class Metadynamics(InteractiveWrapper):
 
     @property
     def _filling_coeff(self):
-        dEV = (np.sqrt(np.pi) * self.input.sigma)**3 * self.input.increment
+        dEV = (np.sqrt(2 * np.pi) * self.input.sigma)**3 * self.input.increment
         V_tot = self.primitive_cell.get_volume()
         N_sym = len(self.unit_cell.symmetry.rotations)
         return dEV / V_tot * N_sym
