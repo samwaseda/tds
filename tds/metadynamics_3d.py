@@ -64,10 +64,16 @@ class UnitCell:
     @property
     def mesh(self):
         if self._mesh is None:
-            self._mesh = np.einsum('j...,ji->...i', np.meshgrid(
-                *[np.linspace(0, 1, np.rint(c / self.spacing).astype(int)) for c in self.cell],
-                indexing='ij'
-            ), self.unit_cell.cell)
+            linspace = []
+            for c in self.cell:
+                ll = np.linspace(0, 1, np.rint(c / self.spacing).astype(int), endpoint=False)
+                ll += 0.5 * (ll[1] - ll[0])
+                linspace.append(ll)
+            self._mesh = np.einsum(
+                'j...,ji->...i',
+                np.meshgrid(*linspace, indexing='ij'),
+                self.unit_cell.cell
+            )
         return self._mesh
 
     @property
@@ -106,17 +112,24 @@ class UnitCell:
         dx /= self.sigma
         B = self.increment * np.exp(-dist**2 / (2 * self.sigma**2))
         np.add.at(self.B, unraveled_indices, B)
-        np.add.at(self.dBds, unraveled_indices, np.einsum('i,...,->...i', dx, B, 1 / self.sigma))
+        np.add.at(self.dBds, unraveled_indices, np.einsum('...i,...->...i', dx, B / self.sigma))
         if self.use_gradient:
-            xx = (np.outer(dx, dx) - np.eye(3)) / self.sigma**2
-            np.add.at(self.ddBdds, unraveled_indices, np.einsum('ij,...->...ij', xx,  B))
+            xx = (np.einsum('...i,...j->...ij', dx, dx) - np.eye(3)) / self.sigma**2
+            np.add.at(self.ddBdds, unraveled_indices, np.einsum('...ij,...->...ij', xx, B))
         self._x_lst.extend(x)
 
     def _get_index(self, x):
-        return np.unravel_index(self.tree_mesh.query(self.x_to_s(x))[1], self.mesh.shape[:-1])
+        return np.unravel_index(
+            self.tree_mesh.query(self.x_to_s(x))[1], self.mesh.shape[:-1]
+        )
 
     def get_force(self, x):
-        return self.dBds[self._get_index(x)]
+        index = self._get_index(x)
+        dBds = self.dBds[self._get_index(x)]
+        if self.use_gradient:
+            dx = x - self.mesh[index]
+            dBds += np.einsum('...j,ij->...i', dx, self.ddBdds[index])
+        return dBds
 
     @property
     def x_lst(self):
