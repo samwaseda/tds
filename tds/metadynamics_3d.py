@@ -14,7 +14,8 @@ class UnitCell:
         cutoff=4,
         symprec=1.0e-2,
         sigma_decay=1,
-        increment_decay=1
+        increment_decay=1,
+        use_gradient=True,
     ):
         self.unit_cell = unit_cell
         self._sigma = sigma
@@ -27,13 +28,15 @@ class UnitCell:
         self._cutoff = cutoff
         self._x_lst = []
         self._cell_inv = None
+        self.B = np.zeros(self.mesh.shape[:-1])
         self.dBds = np.zeros_like(self.mesh)
-        self.B = np.zeros(self.dBds.shape[:-1])
+        self.ddBdds = np.zeros(self.mesh.shape + (3,))
         self._symmetry = None
         self._symprec = symprec
         self._gaussian_process = None
         self._sigma_decay = sigma_decay
         self._increment_decay = increment_decay
+        self.use_gradient = use_gradient
 
     @property
     def sigma(self):
@@ -100,9 +103,13 @@ class UnitCell:
         if symmetrize:
             x = self._get_symmetric_x(x)
         dist, dx, unraveled_indices = self._get_neighbors(x)
+        dx /= self.sigma
         B = self.increment * np.exp(-dist**2 / (2 * self.sigma**2))
-        np.add.at(self.dBds, unraveled_indices, dx * B[:, np.newaxis] / self.sigma**2)
         np.add.at(self.B, unraveled_indices, B)
+        np.add.at(self.dBds, unraveled_indices, np.einsum('i,...,->...i', dx, B, 1 / self.sigma))
+        if self.use_gradient:
+            xx = (np.outer(dx, dx) - np.eye(3)) / self.sigma**2
+            np.add.at(self.ddBdds, unraveled_indices, np.einsum('ij,...->...ij', xx,  B))
         self._x_lst.extend(x)
 
     def _get_index(self, x):
@@ -142,6 +149,7 @@ class Metadynamics(InteractiveWrapper):
         self.input.spacing = 0.05
         self.input.symprec = 1.0e-2
         self.input.unit_length = 0
+        self.input.use_gradient = True
         self.input.track_vacancy = False
         self._unit_cell = None
         self.output.x = []
@@ -171,7 +179,8 @@ class Metadynamics(InteractiveWrapper):
                 cutoff=self.input.cutoff,
                 symprec=self.input.symprec,
                 sigma_decay=self.input.sigma_decay,
-                increment_decay=self.input.increment_decay
+                increment_decay=self.input.increment_decay,
+                use_gradient=self.input.use_gradient,
             )
         return self._unit_cell
 
@@ -192,6 +201,7 @@ class Metadynamics(InteractiveWrapper):
         self.output.x = self.unit_cell.x_lst
         self.output.B = self.unit_cell.B
         self.output.dBds = self.unit_cell.dBds
+        self.output.ddBdds = self.unit_cell.ddBdds
         self.status.finished = True
         self.to_hdf()
 
