@@ -125,7 +125,7 @@ class UnitCell:
 
     def get_force(self, x):
         index = self._get_index(x)
-        dBds = self.dBds[self._get_index(x)]
+        dBds = self.dBds[index],copy()
         if self.use_gradient:
             dx = x - self.mesh[index]
             dBds += np.einsum('...j,ij->...i', dx, self.ddBdds[index])
@@ -144,8 +144,15 @@ class UnitCell:
         rho = len(self.x_lst) / self.unit_cell.get_volume()
         return np.max([int(1.5 * 4 / 3 * np.pi * self.cutoff**3 * rho), 20])
 
-    def get_energy(self, x, reset_gp=False):
-        return -self.B[self._get_index(x)]
+    def get_energy(self, x, derivative=0):
+        if derivative == 0:
+            return -self.B[self._get_index(x)]
+        elif derivative == 1:
+            return -self.dBds[self._get_index(x)]
+        elif derivative == 2:
+            return -self.ddBdds[self._get_index(x)]
+        else:
+            raise ValueError(f"derivative = {derivative} does not exist")
 
 
 class Metadynamics(InteractiveWrapper):
@@ -155,10 +162,10 @@ class Metadynamics(InteractiveWrapper):
         self.output = DataContainer(table_name='output')
         self.input.update_every_n_steps = 100
         self.input.increment = 0.001
-        self.input.sigma = 0.5
+        self.input.sigma = 0.2
         self.input.cutoff = 4
-        self.input.sigma_decay = 0.999
-        self.input.increment_decay = 0.99
+        self.input.sigma_decay = 1
+        self.input.increment_decay = 1
         self.input.spacing = 0.05
         self.input.symprec = 1.0e-2
         self.input.unit_length = 0
@@ -270,12 +277,15 @@ class Metadynamics(InteractiveWrapper):
         self.output.from_hdf(hdf=self.project_hdf5, group_name='output')
         if len(self.output.x) > 0:
             self.unit_cell._x_lst.extend(self.output.x)
+            self.unit_cell.B = self.output.B
+            self.unit_cell.dBds = self.output.dBds
+            self.unit_cell.B = self.output.ddBdds
 
     def write_input(self):
         pass
 
-    def get_energy(self, x):
-        return self.unit_cell.get_energy(x)
+    def get_energy(self, x, derivative=0):
+        return self.unit_cell.get_energy(x, derivative=derivative)
 
     @property
     def _filling_coeff(self):
@@ -285,11 +295,14 @@ class Metadynamics(InteractiveWrapper):
         return dEV / V_tot * N_sym
 
     def get_filling_rate(self, n, diff=False):
-        decay = self.input.sigma_decay**3 * self.input.increment_decay
         nn = np.array(n) / self.input.update_every_n_steps
+        decay = self.input.sigma_decay**3 * self.input.increment_decay
         if diff:
             return self._filling_coeff * decay**nn
-        return self._filling_coeff * (1 - decay**(nn + 1)) / (1 - decay)
+        if decay < 1:
+            return self._filling_coeff * (1 - decay**(nn + 1)) / (1 - decay)
+        else:
+            return self._filling_coeff * nn
 
     @property
     def total_filling(self):
