@@ -79,7 +79,7 @@ class Metadynamics(InteractiveWrapper):
         self.ref_job.run()
         self.status.collect = True
         self.ref_job.interactive_close()
-        self.status.finished = True
+        self.run()
         self.to_hdf()
 
     @property
@@ -105,7 +105,7 @@ class Metadynamics(InteractiveWrapper):
 
     def get_force(self, x):
         index = np.rint(x / self.spacing).astype(int) % len(self.mesh)
-        dBds = self.output.dBds[index]
+        dBds = self.output.dBds[index].copy()
         if self.input.use_gradient:
             dx = x - self.mesh[index]
             dx -= self.length * np.rint(dx / self.length)
