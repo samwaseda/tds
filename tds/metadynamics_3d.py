@@ -125,7 +125,7 @@ class UnitCell:
 
     def get_force(self, x):
         index = self._get_index(x)
-        dBds = self.dBds[index],copy()
+        dBds = self.dBds[index].copy()
         if self.use_gradient:
             dx = x - self.mesh[index]
             dBds += np.einsum('...j,ij->...i', dx, self.ddBdds[index])
@@ -211,19 +211,22 @@ class Metadynamics(InteractiveWrapper):
             self._mass_ratios /= self._mass_ratios.sum()
         return self._mass_ratios
 
+    def collect_output(self):
+        self.output.x = self.unit_cell.x_lst
+        self.output.B = self.unit_cell.B
+        self.output.dBds = self.unit_cell.dBds
+        self.output.ddBdds = self.unit_cell.ddBdds
+        self.to_hdf()
+
     def run_static(self):
         self.status.running = True
         self.ref_job_initialize()
         self.ref_job.set_fix_external(self.callback, overload_internal_fix_external=True)
         self.ref_job.run()
         self.status.collect = True
+        self.collect_output()
         self.ref_job.interactive_close()
-        self.output.x = self.unit_cell.x_lst
-        self.output.B = self.unit_cell.B
-        self.output.dBds = self.unit_cell.dBds
-        self.output.ddBdds = self.unit_cell.ddBdds
-        self.status.finished = True
-        self.to_hdf()
+        self.run()
 
     def get_x_shift(self):
         x_v = -self.mass_ratios[-1] * self.total_displacements[-1]
@@ -279,7 +282,7 @@ class Metadynamics(InteractiveWrapper):
             self.unit_cell._x_lst.extend(self.output.x)
             self.unit_cell.B = self.output.B
             self.unit_cell.dBds = self.output.dBds
-            self.unit_cell.B = self.output.ddBdds
+            self.unit_cell.ddBdds = self.output.ddBdds
 
     def write_input(self):
         pass
