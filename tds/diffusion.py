@@ -3,6 +3,7 @@ from pyiron_base.job.generic import GenericJob
 from pyiron_base.generic.object import HasStorage
 from pint import UnitRegistry
 from tqdm import tqdm
+from sklearn.metrics import r2_score
 
 
 class Diffusion(GenericJob, HasStorage):
@@ -12,9 +13,9 @@ class Diffusion(GenericJob, HasStorage):
         self.storage.create_group("input")
         self.storage.create_group("output")
         self._python_only_job = True
-        self.input.c_0 = 0.1
+        self.input.c_0 = 36e-6
         self.input.c_min = 0
-        self.input.spacing = 0.1
+        self.input.spacing = 0.05
         self.input.length = 100
         self.input.gb_positions = np.array([0.25, 0.75])
         self.input.sigma = 0.5
@@ -30,6 +31,7 @@ class Diffusion(GenericJob, HasStorage):
         self.input.temperature = 300
         self.input.diffusion_barrier = 0.46
         self.input.n_snapshots = 10
+        self.input.fourier = False
         self._z = None
         self._epsilon = None
         self._d_epsilon = None
@@ -38,6 +40,15 @@ class Diffusion(GenericJob, HasStorage):
         self._temperature = None
         self._c = None
         self._n_mesh = None
+        self._freq = None
+        self._spacing = None
+
+    def validate_ready_to_run(self):
+        super().validate_ready_to_run()
+        if self.input.gb_positions.min() < 0 or self.input.gb_positions.max() > 1:
+            raise ValueError('GB position is to be given relative to box size')
+        if r2_score(self.dd_epsilon, self._get_gradient(self.d_epsilon)) < 0.999:
+            raise ValueError('Mesh too rough - decrease spacing')
 
     @property
     def gb_positions(self):
@@ -48,8 +59,8 @@ class Diffusion(GenericJob, HasStorage):
         if self._c is None:
             cc = self.input.c_0 / (1 - self.input.c_0)
             exp = np.exp(-self.epsilon / self.kBT)
-            c = cc * exp / (1 + cc * exp)
-            self._c = self.get_slope(self.z) * self.get_slope(self.z.max() - self.z) * c
+            self._c = cc * exp / (1 + cc * exp)
+            self._c *= self.get_slope(self.z) * self.get_slope(self.z.max() - self.z)
         return self._c
 
     @c.setter
@@ -125,12 +136,34 @@ class Diffusion(GenericJob, HasStorage):
         return self._n_mesh
 
     @property
+    def spacing(self):
+        if self._spacing is None:
+            self._spacing = np.diff(self.z)[0]
+        return self._spacing
+
+    @property
+    def freq(self):
+        if self._freq is None:
+            self._freq = 2 * np.pi * 1j * np.fft.fftfreq(len(self.z), self.spacing)
+        return self._freq
+
+    def _get_gradient(self, x):
+        if self.input.fourier:
+            return np.fft.ifft(np.fft.fft(x) * self.freq).real
+        return (np.roll(x, -1) - np.roll(x, 1)) * 0.5 / self.spacing
+
+    def _get_laplace(self, x):
+        if self.input.fourier:
+            return np.fft.ifft(np.fft.fft(x) * self.freq**2).real
+        return (np.roll(x, 1) + np.roll(x, -1) - 2 * x) / self.spacing**2
+
+    @property
     def dc(self):
-        return np.gradient(self.c, edge_order=2) / self.input.spacing
+        return self._get_gradient(self.c)
 
     @property
     def ddc(self):
-        return (np.roll(self.c, 1) + np.roll(self.c, -1) - 2 * self.c) / self.input.spacing**2
+        return self._get_laplace(self.c)
 
     @property
     def diff_coeff(self):
@@ -138,9 +171,9 @@ class Diffusion(GenericJob, HasStorage):
 
     @property
     def dcdt(self):
-        return self.diff_coeff * self.ddc + self.diff_coeff / self.kBT * (
+        return self.diff_coeff * (self.ddc + 1 / self.kBT * (
             self.dc * (1 - 2 * self.c) * self.d_epsilon + self.c * (1 - self.c) * self.dd_epsilon
-        )
+        ))
 
     def _initialize_output(self):
         self.output.h_lst = np.zeros(self.input.n_steps)
