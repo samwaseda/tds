@@ -14,7 +14,7 @@ class Diffusion(GenericJob, HasStorage):
         self._python_only_job = True
         self.input.c_0 = 0.1
         self.input.c_min = 0
-        self.input.spacing = 0.01
+        self.input.spacing = 0.1
         self.input.length = 100
         self.input.gb_positions = np.array([0.25, 0.75])
         self.input.sigma = 0.5
@@ -22,11 +22,11 @@ class Diffusion(GenericJob, HasStorage):
         self.input.D_0 = 0.352**2 * 1e13
         self.input.edge_slope = 1
         self.input.init_dt = 1e-9
-        self.input.dt_up = 1.1
+        self.input.dt_up = 0.1
         self.input.dt_down = 0.5
         self.input.max_change = 0.01
-        self.input.n_steps = 10000000
-        self.input.dTdt = 10000000
+        self.input.n_steps = int(1e6)
+        self.input.dTdt = 0.1
         self.input.temperature = 300
         self.input.diffusion_barrier = 0.46
         self.input.n_snapshots = 10
@@ -37,6 +37,7 @@ class Diffusion(GenericJob, HasStorage):
         self._kB = None
         self._temperature = None
         self._c = None
+        self._n_mesh = None
 
     @property
     def gb_positions(self):
@@ -77,7 +78,8 @@ class Diffusion(GenericJob, HasStorage):
         return self._kB
 
     def get_slope(self, z):
-        exp = np.exp(-self.input.edge_slope * z)
+        A = (1 - self.input.c_min) / (1 + self.input.c_min)
+        exp = A * np.exp(-self.input.edge_slope * z)
         return (1 - exp) / (1 + exp)
 
     def get_eps(self, x):
@@ -118,7 +120,9 @@ class Diffusion(GenericJob, HasStorage):
 
     @property
     def n_mesh(self):
-        return int(self.input.length / self.input.spacing)
+        if self._n_mesh is None:
+            self._n_mesh = int(self.input.length / self.input.spacing)
+        return self._n_mesh
 
     @property
     def dc(self):
@@ -144,19 +148,30 @@ class Diffusion(GenericJob, HasStorage):
         self.output.t_lst = np.zeros(self.input.n_steps)
         self.output.c_lst = np.zeros((self.input.n_snapshots, len(self.c)))
 
+    def _check_dt(self, dc):
+        if np.any(self.c[1:-1] * self.input.max_change < -dc[1:-1]):
+            return True
+        elif np.any(dc[1:-1] > self.input.max_change * (1 - self.c[1:-1])):
+            return True
+        return False
+
+    def _get_dc(self, dcdt, dt):
+        c_dc = dcdt.sum() / self.c.sum()
+        return dt * (dcdt - self.c * c_dc) / (1 + dt * c_dc)
+
     def run_diffusion(self):
         i_ss = np.rint(np.linspace(0, self.input.n_steps - 1, self.input.n_snapshots)).astype(int)
-        dt = self.input.init_dt
+        dt = np.log(self.input.init_dt)
         for ii in tqdm(range(self.input.n_steps)):
             dcdt = self.dcdt
-            dt *= self.input.dt_up
-            while np.any(self.c * self.input.max_change < -dcdt * dt):
-                dt *= self.input.dt_down
-            dc = dt * dcdt
+            dt += self.input.dt_up
+            while self._check_dt(self._get_dc(dcdt, np.exp(dt))):
+                dt -= self.input.dt_down
+            dc = self._get_dc(dcdt, np.exp(dt))
             self.output.h_lst[ii] = dc[0] + dc[-1]
             self.output.T_lst[ii] = self.temperature
-            self.output.t_lst[ii] = dt
-            self.temperature += dt * self.input.dTdt
+            self.output.t_lst[ii] = np.exp(dt)
+            self.temperature += np.exp(dt) * self.input.dTdt
             self.c += dc
             self.c[0] = self.c[-1] = self.input.c_min
             if ii in i_ss:
