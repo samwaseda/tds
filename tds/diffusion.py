@@ -30,7 +30,7 @@ class Diffusion(GenericJob, HasStorage):
         self.input.dTdt = 0.1
         self.input.temperature = 300
         self.input.diffusion_barrier = 0.46
-        self.input.n_snapshots = 10
+        self.input.n_snapshots = 1000
         self.input.fourier = False
         self._z = None
         self._epsilon = None
@@ -42,6 +42,8 @@ class Diffusion(GenericJob, HasStorage):
         self._n_mesh = None
         self._freq = None
         self._spacing = None
+        self.counter = 0
+        self._i_output = None
 
     def validate_ready_to_run(self):
         super().validate_ready_to_run()
@@ -176,10 +178,12 @@ class Diffusion(GenericJob, HasStorage):
         ))
 
     def _initialize_output(self):
-        self.output.h_lst = np.zeros(self.input.n_steps)
-        self.output.T_lst = np.zeros(self.input.n_steps)
-        self.output.t_lst = np.zeros(self.input.n_steps)
+        self.output.h_lst = np.zeros(self.input.n_snapshots)
+        self.output.T_lst = np.zeros(self.input.n_snapshots)
+        self.output.t_lst = np.zeros(self.input.n_snapshots)
         self.output.c_lst = np.zeros((self.input.n_snapshots, len(self.c)))
+        self.h_tot = 0
+        self.t_tot = 0
 
     def _check_dt(self, dc):
         if np.any(self.c[1:-1] * self.input.max_change < -dc[1:-1]):
@@ -192,8 +196,15 @@ class Diffusion(GenericJob, HasStorage):
         c_dc = dcdt.sum() / self.c.sum()
         return dt * (dcdt - self.c * c_dc) / (1 + dt * c_dc)
 
+    @property
+    def i_output(self):
+        if self._i_output is None:
+            self._i_output = np.rint(
+                np.linspace(0, self.input.n_steps - 1, self.input.n_snapshots)
+            ).astype(int)
+        return self._i_output
+
     def run_diffusion(self):
-        i_ss = np.rint(np.linspace(0, self.input.n_steps - 1, self.input.n_snapshots)).astype(int)
         dt = np.log(self.input.init_dt)
         for ii in tqdm(range(self.input.n_steps)):
             dcdt = self.dcdt
@@ -201,14 +212,17 @@ class Diffusion(GenericJob, HasStorage):
             while self._check_dt(self._get_dc(dcdt, np.exp(dt))):
                 dt -= self.input.dt_down
             dc = self._get_dc(dcdt, np.exp(dt))
-            self.output.h_lst[ii] = dc[0] + dc[-1]
-            self.output.T_lst[ii] = self.temperature
-            self.output.t_lst[ii] = np.exp(dt)
+            self.h_tot += dc[0] + dc[-1]
+            self.t_tot += np.exp(dt)
             self.temperature += np.exp(dt) * self.input.dTdt
             self.c += dc
             self.c[0] = self.c[-1] = self.input.c_min
-            if ii in i_ss:
-                self.output.c_lst[np.where(ii == i_ss)[0]] = self.c
+            if ii == self.i_output[self.counter]:
+                self.output.T_lst[self.counter] = self.temperature
+                self.output.c_lst[self.counter] = self.c
+                self.output.h_lst[self.counter] = self.h_tot
+                self.output.t_lst[self.counter] = self.t_tot
+                self.counter += 1
 
     def collect_output(self):
         pass
