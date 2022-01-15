@@ -47,14 +47,14 @@ class Diffusion(GenericJob, HasStorage):
 
     def validate_ready_to_run(self):
         super().validate_ready_to_run()
-        if self.input.gb_positions.min() < 0 or self.input.gb_positions.max() > 1:
+        if np.min(self.input.gb_positions) < 0 or np.max(self.input.gb_positions) > 1:
             raise ValueError('GB position is to be given relative to box size')
         if r2_score(self.dd_epsilon, self._get_gradient(self.d_epsilon)) < 0.999:
             raise ValueError('Mesh too rough - decrease spacing')
 
     @property
     def gb_positions(self):
-        return self.input.gb_positions * self.input.length
+        return np.array(self.input.gb_positions).flatten() * self.input.length
 
     @property
     def c(self):
@@ -101,28 +101,25 @@ class Diffusion(GenericJob, HasStorage):
     @property
     def epsilon(self):
         if self._epsilon is None:
-            self._epsilon = -self.input.e_binding * np.sum([
-                self.get_eps(self.z - xx)
-                for xx in self.gb_positions
-            ], axis=0)
+            self._epsilon = -self.input.e_binding * np.sum(
+                self.get_eps(self.z - self.gb_positions[:, None]), axis=0
+            )
         return self._epsilon
 
     @property
     def d_epsilon(self):
         if self._d_epsilon is None:
-            self._d_epsilon = self.input.e_binding * np.sum([
-                (self.z - xx) / self.input.sigma**2 * self.get_eps(self.z - xx)
-                for xx in self.gb_positions
-            ], axis=0)
+            self._d_epsilon = self.input.e_binding * np.sum((
+                self.z - self.gb_positions[:, None]
+            ) * self.get_eps(self.z - self.gb_positions[:, None]), axis=0) / self.input.sigma**2
         return self._d_epsilon
 
     @property
     def dd_epsilon(self):
         if self._dd_epsilon is None:
-            self._dd_epsilon = -self.input.e_binding * np.sum([
-                ((self.z - xx)**2 / self.input.sigma**2 - 1) * self.get_eps(self.z - xx)
-                for xx in self.gb_positions
-            ], axis=0) / self.input.sigma**2
+            self._dd_epsilon = -self.input.e_binding * np.sum((
+                (self.z - self.gb_positions[:, None])**2 / self.input.sigma**2 - 1
+            ) * self.get_eps(self.z - self.gb_positions[:, None]), axis=0) / self.input.sigma**2
         return self._dd_epsilon
 
     @property
