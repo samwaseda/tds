@@ -229,6 +229,7 @@ class Diffusion(GenericJob, HasStorage):
 
     def run_static(self):
         self._initialize_output()
+        self.status.running = True
         self.run_diffusion()
         self.status.collect = True
         self.run()
