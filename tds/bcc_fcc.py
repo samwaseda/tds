@@ -249,7 +249,7 @@ class Diffusion(GenericJob, HasStorage):
             self.input.E_mis - 0.5 * self.input.E_bcc
         ) * self.get_f(order=2, absolute=False)
         force += self.input.E_bcc * self.get_f(order=1, absolute=True)
-        return np.mean(force) * self.input.length * self.rho * 2
+        return -np.mean(force * self.c) * self.input.length * self.input.density * 2
 
     @property
     def chemical_potential(self):
