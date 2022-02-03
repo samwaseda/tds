@@ -22,7 +22,7 @@ class Diffusion(GenericJob, HasStorage):
         self.input.Q_fcc = 0.44
         self.input.Q_bcc = 0.05
         self.input.velocity = 1
-        self.input.force = 0.0001
+        self.input.e_diff_bcc_fcc = 0.001
         self.input.spacing = 0.01
         self.input.temperature = 1000
         self.input.density = 4 / 3.6**3
@@ -58,12 +58,15 @@ class Diffusion(GenericJob, HasStorage):
         self._Q_dict = defaultdict(lambda: None)
         self._D_dict = defaultdict(lambda: None)
 
-    def set_concentration(self, chemical_potential=None, c_0=None):
+    def set_concentration(self, chemical_potential=None, c_0=None, temperature=None):
         if chemical_potential is None and c_0 is None:
             print('Neither chemical potential nor c_0 given')
             return
+        kBT = self.kBT
+        if temperature is not None:
+            kBT = self.kB * temperature
         if chemical_potential is not None:
-            self._c = 1 / (1 + np.exp((self.get_E() - chemical_potential) / self.kBT))
+            self._c = 1 / (1 + np.exp((self.get_E() - chemical_potential) / kBT))
         else:
             self._c = self.ones_like(self.c) * c_0
 
@@ -214,10 +217,18 @@ class Diffusion(GenericJob, HasStorage):
         self.status.finished = True
         self.to_hdf()
 
+    @property
+    def ext_force(self):
+        if self.input.e_diff_bcc_fcc is None:
+            return None
+        return self.input.density * self.input.e_diff_bcc_fcc
+
     def _get_next_position(self, dt):
-        if self.input.force is not None:
+        if self.ext_force is not None:
             dfdx = self._dfdx
-            return (self.input.force + self.force) / dfdx * (
+            if np.isclose(dfdx, 0):
+                return self.input.velocity * dt * (self.ext_force + self.force)
+            return (self.ext_force + self.force) / dfdx * (
                 np.exp(self.input.velocity * dfdx * dt) - 1
             )
         return self.input.velocity * dt
@@ -235,8 +246,8 @@ class Diffusion(GenericJob, HasStorage):
             self._c += dc
             self.bccfcc += self._get_next_position(np.exp(dt))
             if ii == self.i_output[counter]:
-                self.output.free_energy[counter] = self.free_energy.sum()
-                self.output.energy[counter] = self.energy.sum()
+                self.output.free_energy[counter] = np.mean(self.free_energy) * self._measure
+                self.output.energy[counter] = np.mean(self.energy) * self._measure
                 self.output.distribution[counter] = self.c
                 self.output.time[counter] = self.t_tot
                 self.output.interface_position[counter] = self.bccfcc
@@ -253,12 +264,16 @@ class Diffusion(GenericJob, HasStorage):
         return self.c * self.get_E()
 
     @property
+    def _measure(self):
+        return self.input.length * self.input.density * 2
+
+    @property
     def _dfdx(self):
         force = 4 * self.sigma * (
             self.input.E_mis - 0.5 * self.input.E_bcc
         ) * self.get_f(order=3, absolute=True)
         force += self.input.E_bcc * self.get_f(order=2, absolute=False)
-        return -np.mean(force * self.c) * self.input.length * self.input.density * 2
+        return -np.mean(force * self.c) * self._measure
 
     @property
     def force(self):
@@ -266,7 +281,7 @@ class Diffusion(GenericJob, HasStorage):
             self.input.E_mis - 0.5 * self.input.E_bcc
         ) * self.get_f(order=2, absolute=False)
         force += self.input.E_bcc * self.get_f(order=1, absolute=True)
-        return -np.mean(force * self.c) * self.input.length * self.input.density * 2
+        return -np.mean(force * self.c) * self._measure
 
     @property
     def chemical_potential(self):
