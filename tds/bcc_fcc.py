@@ -21,7 +21,8 @@ class Diffusion(GenericJob, HasStorage):
         self.input.E_bcc = 0.08
         self.input.Q_fcc = 0.44
         self.input.Q_bcc = 0.05
-        self.input.velocity = 1e7
+        self.input.velocity = 1
+        self.input.force = 0.0001
         self.input.spacing = 0.01
         self.input.temperature = 1000
         self.input.density = 4 / 3.6**3
@@ -213,6 +214,14 @@ class Diffusion(GenericJob, HasStorage):
         self.status.finished = True
         self.to_hdf()
 
+    def _get_next_position(self, dt):
+        if self.input.force is not None:
+            dfdx = self._dfdx
+            return (self.input.force + self.force) / dfdx * (
+                np.exp(self.input.velocity * dfdx * dt) - 1
+            )
+        return self.input.velocity * dt
+
     def run_diffusion(self):
         dt = np.log(self.input.init_dt)
         counter = 0
@@ -224,7 +233,7 @@ class Diffusion(GenericJob, HasStorage):
             dc = self._get_dc(dcdt, np.exp(dt))
             self.t_tot += np.exp(dt)
             self._c += dc
-            self.bccfcc += self.input.velocity * np.exp(dt)
+            self.bccfcc += self._get_next_position(np.exp(dt))
             if ii == self.i_output[counter]:
                 self.output.free_energy[counter] = self.free_energy.sum()
                 self.output.energy[counter] = self.energy.sum()
@@ -242,6 +251,14 @@ class Diffusion(GenericJob, HasStorage):
     @property
     def energy(self):
         return self.c * self.get_E()
+
+    @property
+    def _dfdx(self):
+        force = 4 * self.sigma * (
+            self.input.E_mis - 0.5 * self.input.E_bcc
+        ) * self.get_f(order=3, absolute=True)
+        force += self.input.E_bcc * self.get_f(order=2, absolute=False)
+        return -np.mean(force * self.c) * self.input.length * self.input.density * 2
 
     @property
     def force(self):
