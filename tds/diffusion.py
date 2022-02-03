@@ -175,10 +175,10 @@ class Diffusion(GenericJob, HasStorage):
         ))
 
     def _initialize_output(self):
-        self.output.h_lst = np.zeros(self.input.n_snapshots)
-        self.output.T_lst = np.zeros(self.input.n_snapshots)
-        self.output.t_lst = np.zeros(self.input.n_snapshots)
-        self.output.c_lst = np.zeros((self.input.n_snapshots, len(self.c)))
+        self.output.lost_H = np.zeros(self.input.n_snapshots)
+        self.output.temperature = np.zeros(self.input.n_snapshots)
+        self.output.time = np.zeros(self.input.n_snapshots)
+        self.output.distribution = np.zeros((self.input.n_snapshots, len(self.c)))
         self.h_tot = 0
         self.t_tot = 0
 
@@ -215,10 +215,10 @@ class Diffusion(GenericJob, HasStorage):
             self.c += dc
             self.c[0] = self.c[-1] = self.input.c_min
             if ii == self.i_output[self.counter]:
-                self.output.T_lst[self.counter] = self.temperature
-                self.output.c_lst[self.counter] = self.c
-                self.output.h_lst[self.counter] = self.h_tot
-                self.output.t_lst[self.counter] = self.t_tot
+                self.output.temperature[self.counter] = self.temperature
+                self.output.distribution[self.counter] = self.c
+                self.output.lost_H[self.counter] = self.h_tot
+                self.output.time[self.counter] = self.t_tot
                 self.counter += 1
 
     def collect_output(self):

@@ -15,6 +15,8 @@ class UnitCell:
         symprec=1.0e-2,
         sigma_decay=1,
         increment_decay=1,
+        min_sigma=0,
+        min_increment=0,
         use_gradient=True,
     ):
         self.unit_cell = unit_cell
@@ -36,15 +38,21 @@ class UnitCell:
         self._gaussian_process = None
         self._sigma_decay = sigma_decay
         self._increment_decay = increment_decay
+        self._min_sigma = min_sigma
+        self._min_increment = min_increment
         self.use_gradient = use_gradient
 
     @property
     def sigma(self):
-        return self._sigma * self._sigma_decay ** len(self._x_lst)
+        return (
+            self._sigma - self._min_sigma
+        ) * self._sigma_decay ** len(self._x_lst) + self._min_sigma
 
     @property
     def increment(self):
-        return self._increment * self._increment_decay ** len(self._x_lst)
+        return (
+            self._increment - self._min_increment
+        ) * self._increment_decay ** len(self._x_lst) + self._min_increment
 
     @property
     def cutoff(self):
@@ -169,6 +177,8 @@ class Metadynamics(InteractiveWrapper):
         self.input.spacing = 0.05
         self.input.symprec = 1.0e-2
         self.input.unit_length = 0
+        self.input.min_sigma = 0
+        self.input.min_increment = 0
         self.input.use_gradient = True
         self.input.track_vacancy = False
         self._unit_cell = None
@@ -200,6 +210,8 @@ class Metadynamics(InteractiveWrapper):
                 symprec=self.input.symprec,
                 sigma_decay=self.input.sigma_decay,
                 increment_decay=self.input.increment_decay,
+                min_sigma=self.input.min_sigma,
+                min_increment=self.input.min_increment,
                 use_gradient=self.input.use_gradient,
             )
         return self._unit_cell
@@ -291,26 +303,32 @@ class Metadynamics(InteractiveWrapper):
         return self.unit_cell.get_energy(x, derivative=derivative)
 
     @property
+    def _dE(self):
+        return (self.input.sigma - self.input.min_sigma)**3 * (
+            self.input.increment - self.input.min_increment
+        )
+
+    @property
+    def _E_0(self):
+        return self.input.min_sigma**3 * self.input.min_increment
+
+    @property
     def _filling_coeff(self):
-        dEV = (np.sqrt(2 * np.pi) * self.input.sigma)**3 * self.input.increment
         V_tot = self.primitive_cell.get_volume()
         N_sym = len(self.unit_cell.symmetry.rotations)
-        return dEV / V_tot * N_sym
+        return (2 * np.pi)**1.5 / V_tot * N_sym
 
-    def get_filling_rate(self, n, diff=False):
+    def get_filling(self, n, diff=False):
         nn = np.array(n) / self.input.update_every_n_steps
         decay = self.input.sigma_decay**3 * self.input.increment_decay
         if diff:
-            return self._filling_coeff * decay**nn
+            return self._filling_coeff * (self._dE * decay**nn + self._E_0)
         if decay < 1:
-            return self._filling_coeff * (1 - decay**(nn + 1)) / (1 - decay)
+            return self._filling_coeff * (
+                self._dE * (1 - decay**(nn + 1)) / (1 - decay) + nn * self._E_0
+            )
         else:
             return self._filling_coeff * nn
-
-    @property
-    def total_filling(self):
-        decay = self.input.sigma_decay**3 * self.input.increment_decay
-        return self._filling_coeff / (1 - decay)
 
     @property
     def max_force(self):
