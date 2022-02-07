@@ -179,7 +179,7 @@ class Diffusion(GenericJob, HasStorage):
         dDdx = self.get_D(order=1) * (dDdx_first + dDdx_second)
         D_first = (1 - 2 * self.c) * self.dcdx * self.get_E(order=1, kBT=True)
         D_second = self.c * (1 - self.c) * self.get_E(order=2, kBT=True)
-        D = D_first + D_second + self.ddcddx
+        D = (D_first + D_second + self.ddcddx) * self.get_D()
         return dDdx + D
 
     def _get_dc(self, dcdt, dt):
