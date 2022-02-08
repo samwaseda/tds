@@ -21,11 +21,12 @@ class Diffusion(GenericJob, HasStorage):
         self.input.E_bcc = 0.08
         self.input.Q_fcc = 0.44
         self.input.Q_bcc = 0.05
-        self.input.velocity = 1
+        self.input.velocity = 10
         self.input.e_diff_bcc_fcc = 0.001
-        self.input.spacing = 0.01
+        self.input.n_mesh = 400
         self.input.temperature = 1000
-        self.input.density = 4 / 3.6**3
+        self.input.density = 4 / 0.36**3
+        self.input.use_simple_dcdt = False
         self._ureg = UnitRegistry()
         self._x = None
         self.kB = (1 * self._ureg.kelvin * self._ureg.boltzmann_constant).to('eV').magnitude
@@ -36,12 +37,13 @@ class Diffusion(GenericJob, HasStorage):
         self._Q_dict = defaultdict(lambda: None)
         self._D_dict = defaultdict(lambda: None)
         self._c = None
-        self.input.init_dt = 1.0e-9
+        self.input.init_dt = 1.0e-10
         self.input.dt_up = 0.1
         self.input.dt_down = 0.5
         self.input.n_steps = 10000
         self.input.n_snapshots = 100
         self.input.max_change = 0.01
+        self.input.c_init = None
         self.t_tot = 0
         self._i_output = None
         self._bccfcc = None
@@ -49,7 +51,10 @@ class Diffusion(GenericJob, HasStorage):
     @property
     def c(self):
         if self._c is None:
-            self._c = self.input.c_0 * np.ones(self.n_mesh)
+            if self.input.c_init is not None:
+                self._c = self.input.c_init
+            else:
+                self._c = self.input.c_0 * np.ones(self.input.n_mesh)
         return self._c
 
     def reset(self):
@@ -66,9 +71,9 @@ class Diffusion(GenericJob, HasStorage):
         if temperature is not None:
             kBT = self.kB * temperature
         if chemical_potential is not None:
-            self._c = 1 / (1 + np.exp((self.get_E() - chemical_potential) / kBT))
+            self.input.c_init = 1 / (1 + np.exp((self.get_E() - chemical_potential) / kBT))
         else:
-            self._c = self.ones_like(self.c) * c_0
+            self.input.c_init = self.ones_like(self.c) * c_0
 
     @property
     def bccfcc(self):
@@ -84,7 +89,7 @@ class Diffusion(GenericJob, HasStorage):
     @property
     def freq(self):
         if self._freq is None:
-            self._freq = 2 * np.pi * 1j * np.fft.fftfreq(len(self.x), self.input.spacing)
+            self._freq = 2 * np.pi * 1j * np.fft.fftfreq(len(self.x), self.spacing)
         return self._freq
 
     def _get_gradient(self, x):
@@ -94,8 +99,8 @@ class Diffusion(GenericJob, HasStorage):
         return np.fft.ifft(np.fft.fft(x) * self.freq**2).real
 
     @property
-    def n_mesh(self):
-        return int(2 * self.input.length / self.input.spacing)
+    def spacing(self):
+        return self.x[1] - self.x[0]
 
     @property
     def kBT(self):
@@ -105,7 +110,7 @@ class Diffusion(GenericJob, HasStorage):
     def x(self):
         if self._x is None:
             self._x = np.linspace(
-                -self.input.length, self.input.length, self.n_mesh, endpoint=False
+                -self.input.length, self.input.length, self.input.n_mesh, endpoint=False
             )
         return self._x
 
@@ -113,7 +118,7 @@ class Diffusion(GenericJob, HasStorage):
     def sigma(self):
         return 0.5 * self.input.width / np.log(10)
 
-    def get_f(self, order=0, absolute=False):
+    def _get_f(self, order=0, absolute=False):
         key = '{}_{}'.format(order, absolute)
         if self._f_dict[key] is not None:
             return self._f_dict[key]
@@ -139,7 +144,7 @@ class Diffusion(GenericJob, HasStorage):
     def get_Q(self, order=0):
         if self._Q_dict[order] is not None:
             return self._Q_dict[order]
-        self._Q_dict[order] = (self.input.Q_bcc - self.input.Q_fcc) * self.get_f(order=order)
+        self._Q_dict[order] = (self.input.Q_bcc - self.input.Q_fcc) * self._get_f(order=order)
         if order == 0:
             self._Q_dict[order] += self.input.Q_fcc
         return self._Q_dict[order]
@@ -160,8 +165,8 @@ class Diffusion(GenericJob, HasStorage):
                 return self._E_dict[order]
         self._E_dict[order] = 4 * self.sigma * (
             self.input.E_mis - 0.5 * self.input.E_bcc
-        ) * self.get_f(order=order + 1, absolute=True)
-        self._E_dict[order] += self.input.E_bcc * self.get_f(order=order, absolute=False)
+        ) * self._get_f(order=order + 1, absolute=True)
+        self._E_dict[order] += self.input.E_bcc * self._get_f(order=order, absolute=False)
         return self.get_E(order=order, kBT=kBT)
 
     @property
@@ -173,7 +178,7 @@ class Diffusion(GenericJob, HasStorage):
         return self._get_laplace(self.c)
 
     @property
-    def dcdt(self):
+    def _dcdt_individual(self):
         dDdx_first = (self.c * (1 - self.c) * self.get_E(order=1, kBT=True))
         dDdx_second = self.dcdx
         dDdx = self.get_D(order=1) * (dDdx_first + dDdx_second)
@@ -181,6 +186,19 @@ class Diffusion(GenericJob, HasStorage):
         D_second = self.c * (1 - self.c) * self.get_E(order=2, kBT=True)
         D = (D_first + D_second + self.ddcddx) * self.get_D()
         return dDdx + D
+
+    @property
+    def _dcdt_collective(self):
+        return self._get_gradient(
+            self.get_D() * self.c * (1 - self.c) * self._get_gradient(self.chemical_potential)
+        )
+
+    @property
+    def dcdt(self):
+        if self.input.use_simple_dcdt:
+            return self._dcdt_collective
+        else:
+            return self._dcdt_individual
 
     def _get_dc(self, dcdt, dt):
         c_dc = dcdt.sum() / self.c.sum()
@@ -207,6 +225,7 @@ class Diffusion(GenericJob, HasStorage):
         self.output.time = np.zeros(self.input.n_snapshots)
         self.output.distribution = np.zeros((self.input.n_snapshots, len(self.c)))
         self.output.interface_position = np.zeros(self.input.n_snapshots)
+        self.output.force = np.zeros(self.input.n_snapshots)
 
     def run_static(self):
         self._initialize_output()
@@ -251,6 +270,7 @@ class Diffusion(GenericJob, HasStorage):
                 self.output.distribution[counter] = self.c
                 self.output.time[counter] = self.t_tot
                 self.output.interface_position[counter] = self.bccfcc
+                self.output.force[counter] = self.force
                 counter += 1
             if self.bccfcc > self.input.length:
                 break
@@ -271,16 +291,16 @@ class Diffusion(GenericJob, HasStorage):
     def _dfdx(self):
         force = 4 * self.sigma * (
             self.input.E_mis - 0.5 * self.input.E_bcc
-        ) * self.get_f(order=3, absolute=True)
-        force += self.input.E_bcc * self.get_f(order=2, absolute=False)
+        ) * self._get_f(order=3, absolute=True)
+        force += self.input.E_bcc * self._get_f(order=2, absolute=False)
         return -np.mean(force * self.c) * self._measure
 
     @property
     def force(self):
         force = 4 * self.sigma * (
             self.input.E_mis - 0.5 * self.input.E_bcc
-        ) * self.get_f(order=2, absolute=False)
-        force += self.input.E_bcc * self.get_f(order=1, absolute=True)
+        ) * self._get_f(order=2, absolute=False)
+        force += self.input.E_bcc * self._get_f(order=1, absolute=True)
         return -np.mean(force * self.c) * self._measure
 
     @property

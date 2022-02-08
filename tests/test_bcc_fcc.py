@@ -22,6 +22,20 @@ class TestDiffusion(TestWithCleanProject):
         v_ref = self.job._get_gradient(self.job.get_D(order=0))
         self.assertGreater(r2_score(v_ref, v_calc), 0.999)
 
+    def test_f(self):
+        self.assertGreater(r2_score(
+            self.job._get_f(order=1, absolute=False),
+            self.job._get_gradient(self.job._get_f(absolute=False))
+        ), 0.999)
+        self.assertGreater(r2_score(
+            self.job._get_f(order=2, absolute=False),
+            self.job._get_laplace(self.job._get_f(absolute=False))
+        ), 0.999)
+        self.assertGreater(r2_score(
+            self.job._get_f(order=3, absolute=False),
+            self.job._get_laplace(self.job._get_f(order=1, absolute=False))
+        ), 0.999)
+
     def test_dEdx(self):
         v_calc = self.job.get_E(order=1)
         v_ref = self.job._get_gradient(self.job.get_E(order=0))
