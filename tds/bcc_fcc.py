@@ -23,10 +23,11 @@ class Diffusion(GenericJob, HasStorage):
         self.input.Q_bcc = 0.05
         self.input.velocity = 10
         self.input.e_diff_bcc_fcc = 0.001
-        self.input.n_mesh = 400
+        self.input.n_mesh = 405
         self.input.temperature = 1000
         self.input.density = 4 / 0.36**3
         self.input.use_simple_dcdt = False
+        self.input.n_clean = 10000000000
         self._ureg = UnitRegistry()
         self._x = None
         self.kB = (1 * self._ureg.kelvin * self._ureg.boltzmann_constant).to('eV').magnitude
@@ -52,7 +53,7 @@ class Diffusion(GenericJob, HasStorage):
     def c(self):
         if self._c is None:
             if self.input.c_init is not None:
-                self._c = self.input.c_init
+                self._c = self.input.c_init.copy()
             else:
                 self._c = self.input.c_0 * np.ones(self.input.n_mesh)
         return self._c
@@ -207,9 +208,9 @@ class Diffusion(GenericJob, HasStorage):
     @property
     def i_output(self):
         if self._i_output is None:
-            self._i_output = np.rint(
+            self._i_output = np.unique(np.rint(
                 np.linspace(0, self.input.n_steps - 1, self.input.n_snapshots)
-            ).astype(int)
+            ).astype(int))
         return self._i_output
 
     def _check_dt(self, dc):
@@ -252,18 +253,31 @@ class Diffusion(GenericJob, HasStorage):
             )
         return self.input.velocity * dt
 
+    def _run_integration(self, dt):
+        dcdt = self.dcdt
+        dt += self.input.dt_up
+        while self._check_dt(self._get_dc(dcdt, np.exp(dt))):
+            dt -= self.input.dt_down
+        dc = self._get_dc(dcdt, np.exp(dt))
+        self._c += dc
+        if self.input.velocity > 0:
+            self.bccfcc += self._get_next_position(np.exp(dt))
+        return dt
+
     def run_diffusion(self):
         dt = np.log(self.input.init_dt)
         counter = 0
         for ii in tqdm(range(self.input.n_steps)):
-            dcdt = self.dcdt
-            dt += self.input.dt_up
-            while self._check_dt(self._get_dc(dcdt, np.exp(dt))):
-                dt -= self.input.dt_down
-            dc = self._get_dc(dcdt, np.exp(dt))
-            self.t_tot += np.exp(dt)
-            self._c += dc
-            self.bccfcc += self._get_next_position(np.exp(dt))
+            dt_tmp = dt
+            if (ii + 1) % self.input.n_clean == 0:
+                try:
+                    mu = self.chemical_potential
+                    dmudt = self.kBT / (self.c * (1 - self.c)) * self.dcdt
+                    dt_tmp = np.log(-np.polyfit(dmudt, mu, 1)[0]) - self.input.dt_up
+                except:
+                    pass
+            dt_tmp = self._run_integration(dt_tmp)
+            self.t_tot += np.exp(dt_tmp)
             if ii == self.i_output[counter]:
                 self.output.free_energy[counter] = np.mean(self.free_energy) * self._measure
                 self.output.energy[counter] = np.mean(self.energy) * self._measure
